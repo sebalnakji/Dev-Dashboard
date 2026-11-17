@@ -1,0 +1,10 @@
+{
+  "sessions": [
+    {
+      "id": "00000000-0000-0000-0000-000000000000",
+      "name": "my-project-head",
+      "group": "MY-GROUP",
+      "project": "C:/Projects/my-project"
+    }
+  ]
+}

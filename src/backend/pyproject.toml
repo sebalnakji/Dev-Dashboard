@@ -1,0 +1,42 @@
+[project]
+name = "devdash"
+version = "0.1.0"
+description = "원격 서버 · Claude Code 세션 · 이 PC 메모리를 한 화면에서 보는 로컬 대시보드"
+requires-python = ">=3.11"
+dependencies = [
+    "asyncssh>=2.14",
+    "pydantic>=2.6",
+    "pyyaml>=6.0",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "keyring>=25.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.6", "httpx2>=2.0"]
+
+[project.scripts]
+devdash = "devdash.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["devdash*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# E,F: 기본 오류  I: import 정렬  UP: 낡은 문법  B: 흔한 버그  SIM: 불필요한 복잡함
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+# 테스트 함수 이름을 한글로 길게 쓰고 있어 줄 길이를 강제하지 않는다
+"tests/*" = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

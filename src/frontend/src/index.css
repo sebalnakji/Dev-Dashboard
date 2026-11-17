@@ -1,0 +1,130 @@
+@import 'tailwindcss';
+/*
+ * 글꼴: Pretendard. 한글용으로 만들고 영문을 같은 결로 맞춘 글꼴이라 섞인 줄이 고르다.
+ * 이전의 'Segoe UI' + '맑은 고딕' 은 영문 · 한글이 다른 글꼴로 그려져 줄이 울퉁불퉁했고,
+ * 맑은 고딕은 14px 이하에서 획이 가늘고 번져 보였다 (8단계, T-2).
+ * 쓰인 글자 묶음만 내려받는 판(dynamic subset)을 화면에 같이 묶어 인터넷 없이도 보인다.
+ */
+@import 'pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css';
+
+/*
+ * 어두운 배경에서 오래 띄워두는 화면이라 기본을 다크로 잡는다.
+ * 색은 Claude 세션 칸(메인, ADR 0005)의 톤에 맞춘 따뜻한 회색이다.
+ */
+@theme {
+  --color-ground: #1f1f1e; /* 바탕 */
+  --color-panel: #262624; /* 카드 */
+  --color-edge: #363531; /* 카드 테두리 · 표 줄 */
+  --color-divider: #5c5a55; /* 칸을 나누는 선. 카드 테두리보다 밝아야 칸이 구분된다 */
+  --color-hover: #2b2b2a; /* 목록 줄에 마우스를 올렸을 때 */
+  --color-btn: #34342f;
+  --color-btn-hover: #44443e;
+  --color-accent: #7fa7d9; /* 막대 · 터미널 표시 */
+  --color-on: #4caf6a; /* 연결됨 */
+  --color-danger: #de7a52; /* 글자로도 쓰여 바탕 대비 5.5:1 · hover 4.7:1 (이전 #c9643f 는 4.2:1) */
+
+  /*
+   * 서버 화면 곳곳의 gray-* 를 따뜻한 회색(stone)으로 돌린다. 부품마다 색을 고치지 않고
+   * 여기 한 곳에서 서버 화면 전체가 세션 칸 톤을 따라오게 하려는 것이다.
+   *
+   * 흐린 글자에 쓰는 400 · 500 · 600 은 stone 그대로면 너무 어둡다 — 바탕 위 대비가
+   * 600 은 2.2:1, 500 은 3.4:1 로, 작은 글자가 편히 읽히는 기준(WCAG AA 4.5:1)에 못 미쳤다.
+   * 세 단계의 차이는 지키면서 모두 기준을 넘게 밝힌다 (바탕 / 목록 hover 위 대비):
+   *   600 #9a958e  5.5 / 4.8      500 #aca79f  6.9 / 5.9      400 #c0bbb4  8.6 / 7.4
+   */
+  --color-gray-50: var(--color-stone-50);
+  --color-gray-100: var(--color-stone-100);
+  --color-gray-200: var(--color-stone-200);
+  --color-gray-300: var(--color-stone-300);
+  --color-gray-400: #c0bbb4;
+  --color-gray-500: #aca79f;
+  --color-gray-600: #9a958e;
+  --color-gray-700: var(--color-stone-700);
+  --color-gray-800: var(--color-stone-800);
+  --color-gray-900: var(--color-stone-900);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-ground);
+  color: #e6e4dd;
+  font-family:
+    'Pretendard Variable', Pretendard, 'Segoe UI', 'Malgun Gothic', system-ui, sans-serif;
+  /* 한글은 영문보다 획이 많아 줄 사이를 조금 더 둔다 */
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * 스크롤 막대: 윈도우 기본(밝은 회색 · 굵음)은 어두운 화면에서 튀었다 (T-7).
+ * 가늘고 어둡게, 마우스를 올리면 조금 밝게. scrollbar-color 를 아는 브라우저(크롬 121+ · 엣지)는 위의 것을,
+ * 모르는 브라우저는 아래 ::-webkit-scrollbar 를 쓴다.
+ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #4a4843 transparent;
+}
+*:hover {
+  scrollbar-color: #5f5c56 transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 6px;
+  background: #4a4843 padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #5f5c56 padding-box;
+}
+
+/*
+ * 코드 상자 (CodeView, T-6). Shiki 가 만든 <pre class="shiki"> 와 색 입히기 전 글자 상자가 같은 모양이 되게.
+ * 바탕은 Shiki 테마 대신 대시보드 톤으로, 줄 번호는 CSS 카운터로 붙인다 (복사할 때 번호가 딸려 오지 않게).
+ */
+.code-view pre {
+  margin: 0;
+  overflow-x: auto;
+  border: 1px solid var(--color-edge);
+  border-radius: 6px;
+  background-color: #191918 !important;
+  padding: 12px 14px;
+  /* 코딩 글꼴엔 한글이 없어 윈도우가 아무 글꼴로 대신했다 — 한글은 Pretendard 로 받게 둔다 */
+  font-family: 'Cascadia Code', Consolas, 'D2Coding', 'Pretendard Variable', monospace;
+  font-size: 13px;
+  line-height: 1.65;
+  color: #d4d4d4;
+}
+.code-view code {
+  counter-reset: line;
+  font-family: inherit;
+}
+/* 좌우 비교 표 (GitView, T-10). 코드 상자와 같은 글꼴 — 한글이 고정폭 대체 글꼴로 벌어져 보이지 않게 */
+.diff-view {
+  font-family: 'Cascadia Code', Consolas, 'D2Coding', 'Pretendard Variable', monospace;
+}
+.code-view.numbered pre {
+  padding-left: 0;
+}
+.code-view.numbered .line::before {
+  counter-increment: line;
+  content: counter(line);
+  display: inline-block;
+  width: 3.2em;
+  margin-right: 1.1em;
+  padding-right: 0.6em;
+  border-right: 1px solid var(--color-edge);
+  text-align: right;
+  color: var(--color-gray-600);
+  user-select: none;
+}

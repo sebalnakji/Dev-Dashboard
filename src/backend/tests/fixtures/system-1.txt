@@ -1,0 +1,44 @@
+@@/proc/stat
+cpu  1000000 5000 300000 9000000 20000 0 15000 0 0 0
+cpu0 500000 2500 150000 4500000 10000 0 7500 0 0 0
+cpu1 500000 2500 150000 4500000 10000 0 7500 0 0 0
+intr 123456789
+ctxt 987654321
+btime 1735689600
+processes 54321
+procs_running 2
+procs_blocked 0
+@@/proc/meminfo
+MemTotal:       16341236 kB
+MemFree:         2103456 kB
+MemAvailable:    8123456 kB
+Buffers:          234567 kB
+Cached:          5678901 kB
+SwapCached:            0 kB
+SwapTotal:       2097148 kB
+SwapFree:        2097148 kB
+Hugepagesize:       2048 kB
+HugePages_Total:       0
+@@/proc/loadavg
+1.20 0.98 0.75 2/523 12345
+@@/proc/uptime
+273600.45 1053234.12
+@@/proc/net/dev
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo:  123456     789    0    0    0     0          0         0   123456     789    0    0    0     0       0          0
+  eth0: 1000000000 1234567    0    0    0     0          0         0 500000000  987654    0    0    0     0       0          0
+docker0:   500000    1234    0    0    0     0          0         0   250000     567    0    0    0     0       0          0
+@@df
+Filesystem     Type 1024-blocks     Used Available Capacity Mounted on
+/dev/sda1      ext4    41151808 10123456  28929876      26% /
+/dev/sdb1      xfs   1048576000 852000000 196576000      82% /data
+tmpfs          tmpfs      6377436        0   6377436       0% /dev/shm
+efivarfs       efivarfs       192       99         89      53% /sys/firmware/efi/efivars
+/dev/sda2      vfat        523248     6248    517000       2% /boot/efi
+@@cpu
+20
+Intel(R) Core(TM) i5-14500
+@@gpu
+0, NVIDIA GeForce RTX 4070, 12, 3985, 12282
+1, NVIDIA GeForce RTX 4070, [N/A], 100, 12282

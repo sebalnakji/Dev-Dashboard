@@ -1,0 +1,40 @@
+# 서버 접속 설정 예시. 이 파일을 servers.yaml 로 복사해서 쓴다.
+#
+# 비밀번호나 키 passphrase 는 이 파일에 적지 않는다.
+# 필요하면 secret_from_keyring 을 켜고 OS 자격증명 저장소에 넣는다:
+#   python -c "import keyring; keyring.set_password('devdash','prod-api','비밀값')"
+#
+# 서버는 몇 대든 나열할 수 있고, 수집은 서버별로 동시에 진행된다.
+
+servers:
+  - id: prod-api              # 내부 식별자. keyring 조회 키로도 쓰인다
+    label: "운영 API"          # 화면에 표시할 이름 (생략하면 id 사용)
+    host: 10.0.1.20
+    port: 22
+    user: deploy
+
+    # 인증 - 키 파일을 쓰거나(권장), 생략하면 SSH 에이전트와 기본 키를 찾는다
+    key_file: ~/.ssh/id_ed25519
+    secret_from_keyring: false
+
+    # 호스트 키 검증. 끄면 중간자 공격에 노출되므로 신뢰하는 내부망에서만 쓴다
+    verify_host_key: true
+    # known_hosts: ~/.ssh/known_hosts   # 생략하면 기본 위치
+
+    docker_sudo: false        # docker 명령에 sudo 가 필요하면 true (NOPASSWD 설정 필요)
+    control: false            # true 인 서버에서만 컨테이너 제어를 허용한다
+
+    poll:
+      system: 5               # 자원 지표 수집 주기(초)
+      docker: 15              # 컨테이너 상태 수집 주기(초). docker stats 가 느려서 분리했다
+
+    connect_timeout: 10
+    command_timeout: 20
+
+  - id: db
+    label: "DB 서버"
+    host: 10.0.1.21
+    user: deploy
+    key_file: ~/.ssh/id_ed25519
+    docker_sudo: true         # 이 서버는 sudo 가 필요한 경우
+    control: false

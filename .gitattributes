@@ -1,0 +1,4 @@
+* text=auto eol=lf
+
+# 배치 파일은 CRLF 여야 한다. LF 면 한글이 든 줄 다음이 잘린다
+*.bat text eol=crlf

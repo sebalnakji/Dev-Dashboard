@@ -1,0 +1,409 @@
+"""devdash 훅 — 기록 1겹(자동)과 2겹(알림 · 강제). Claude Code 가 이벤트마다 부른다 (ADR 0007).
+
+    UserPromptSubmit   세션 이름을 정하고, 필요할 때 "작업 기록 폴더 · 세션 이름" 알림
+    SessionStart       요약(compact) · 이어 열기(resume) 뒤 알림 다시. /clear 면 이름 넘겨받기
+    SessionEnd         /clear 직전 이름을 맡겨 둔다
+    PostToolUse        파일을 만들거나 고친 직후 변경 기록 한 줄 (진행 중 할 일 번호와 함께).
+                       차례의 첫 변경이면 할 일에 적으라고 한 번 알린다 (2겹 알림)
+    Stop               마지막 작업 저장. 이 세션의 완료 할 일에 '한 일'이 비면 한 번 막는다
+                       (2겹 강제)
+
+등록된 프로젝트가 아니면 아무것도 하지 않는다. 훅은 모든 세션에 끼어들므로 어떤 오류도
+세션을 방해하지 않게, 언제나 종료 코드 0 으로 끝내고 오류는 ~/.devdash/hook-errors.log 에만 남긴다.
+표준 라이브러리만 쓴다.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import json
+import os
+import sys
+import time
+import traceback
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+
+LAST_MESSAGE_LIMIT = 500
+"""세션의 마지막 작업은 화면에 한두 줄로 보이므로 앞부분만 둔다."""
+
+FILE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
+
+RECORDS_HINT = "[devdash] 작업 기록 폴더: {tasks} · 세션 이름: {name}"
+"""Claude 에게 알리는 줄. '작업 기록 폴더' · '세션 이름' 낱말은 SKILL.md 와 같아야 한다
+(테스트로 묶음). 매 차례가 아니라 필요할 때만 낸다 — 매 차례면 100차례에 수천 토큰이
+쌓인다 (3단계 Fable 검토)."""
+
+BLOCK_REASON = (
+    "[devdash] 이번 차례에 완료(done)로 바꾼 할 일의 '## 한 일'이 비어 있습니다.\n{items}\n"
+    "무엇을 했는지 '- YYYY-MM-DD 무엇을 했나 — 왜' 로 한 줄 이상 적은 뒤 끝내세요. "
+    "아직 끝나지 않았으면 status 를 doing 으로 되돌리고 '## 남은 일' 에 이어서 할 것을 적으세요."
+)
+"""끝내기를 막을 때 Claude 에게 주는 이유. 무엇을 하면 풀리는지까지 적는다."""
+
+REMIND_DOING = (
+    "[devdash] 이번 차례에 파일을 고쳤습니다. 의미 있는 진척이면 끝내기 전에 진행 중 할 일 "
+    "{task} 의 '## 한 일' 맨 위에 한 줄 적으세요."
+)
+REMIND_NONE = (
+    "[devdash] 이 세션에 진행 중(doing) 할 일이 없어, 이 변경은 어느 할 일에도 붙지 않습니다. "
+    "작은 수정이면 그대로 두고, 아니면 기록 규칙대로 할 일을 잡으세요."
+)
+REMIND_MANY = (
+    "[devdash] 이 세션의 진행 중(doing) 할 일이 여럿이라({tasks}) 변경을 어디에도 붙이지 못합니다. "
+    "하나만 doing 으로 두세요."
+)
+
+MTIME_SLACK = 1.0
+"""초. 파일 수정 시각의 정밀도 차이로 이번 차례에 바꾼 파일을 놓치지 않게 둔 여유."""
+
+CLEAR_TTL = 60
+"""초. /clear 의 끝(옛 번호)과 시작(새 번호)은 한 프로세스 안에서 곧바로 이어진다."""
+
+ERROR_LOG_LIMIT = 512 * 1024
+
+
+def now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _store():
+    sys.path.insert(0, str(HERE))
+    import devdash_store
+    import devdash_tasks
+
+    return devdash_store, devdash_tasks
+
+
+# --- 세션 이름 ---
+
+
+def resolve_name(store, tasks_mod, key: str, data: dict) -> tuple[str, bool]:
+    """이 세션의 이름과, 알림을 다시 내야 하는지.
+
+    사람이 붙인 이름(session_title)이 새로 오면 그것, 아니면 저장해 둔 이름, 그것도 없으면
+    '<프로젝트>_001' 처럼 새로 붙인다. session_title 은 사람이 붙인 이름만 담는다 — 앱의
+    자동 이름은 오지 않는다 (실제 세션 3차례로 확인).
+
+    다른 세션이 이미 쓰는 이름이면 'develope_2' 처럼 가른다 (store.claim_name). 받은 이름이
+    바뀌었는지는 가른 이름이 아니라 받은 이름(title)끼리 비교한다. 이름이 바뀌면 이 세션이
+    잡고 있던 할 일의 session: 도 옮긴다.
+    """
+    sid = data["session_id"]
+    info = store.session_info(key, sid)
+    stored = info.get("name")
+    title = data.get("session_title")
+    if title and title != info.get("title"):
+        name = store.claim_name(key, sid, title)
+        store.update_session(key, sid, title=title)
+        if stored and stored != name:
+            move_task_owner(store, tasks_mod, key, stored, name)
+    elif stored:
+        name = stored
+    else:
+        name = store.next_auto_name(key)
+        store.update_session(key, sid, name=name)
+    return name, info.get("hinted") != name
+
+
+def move_task_owner(store, tasks_mod, key: str, old: str, new: str) -> None:
+    """이름이 바뀐 세션의 진행 중·완료 할 일에서 session: 을 새 이름으로 바꾼다.
+    주인이 사라지지 않게 한다."""
+    for path in (store.project_dir(key) / "tasks").glob("T-*.md"):
+        meta = tasks_mod.read_meta(path)
+        if meta.get("session") != old or meta.get("status") not in ("doing", "done"):
+            continue
+        # newline="" — 읽고 쓰며 LF 를 CRLF 로 바꾸지 않게
+        with open(path, encoding="utf-8", newline="") as f:
+            text = f.read()
+        changed = tasks_mod.set_meta(text, "session", new)
+        if changed != text:
+            with open(path, "w", encoding="utf-8", newline="") as f:
+                f.write(changed)
+
+
+def hint(store, key: str, sid: str, name: str) -> None:
+    tasks = store.project_dir(key) / "tasks"
+    # 이 출력이 Claude 의 문맥에 들어간다. 저장보다 먼저 낸다 — 저장이 실패해도 알림은 가게
+    print(RECORDS_HINT.format(tasks=tasks, name=name))
+    with contextlib.suppress(Exception):  # 실패하면 다음 차례에 한 번 더 알릴 뿐이다
+        store.update_session(key, sid, hinted=name)
+
+
+def task_files(store, tasks_mod, key: str) -> list[tuple[int, Path]]:
+    """이름이 형식(T-번호-제목.md)에 맞는 할 일 파일들, 번호 순 (T-2 가 T-10 앞).
+    알림과 강제가 같은 파일을 보게 한 곳에서 거른다 (4단계 Fable 검토)."""
+    out = []
+    for path in (store.project_dir(key) / "tasks").glob("T-*.md"):
+        m = tasks_mod.FILE_NAME.match(path.name)
+        if m:
+            out.append((int(m.group(1)), path))
+    return sorted(out)
+
+
+def doing_tasks(store, tasks_mod, key: str, name: str) -> list[str]:
+    """이 이름의 세션이 진행 중인 할 일 번호들. 규칙상 하나여야 한다."""
+    found = []
+    for number, path in task_files(store, tasks_mod, key):
+        meta = tasks_mod.read_meta(path)
+        if meta.get("status") == "doing" and meta.get("session") == name:
+            found.append(f"T-{number}")
+    return found
+
+
+def first_change_in_turn(store, key: str, sid: str, prompt_id: str) -> bool:
+    """이 차례(prompt_id)의 첫 파일 변경이면 표시해 두고 True.
+
+    한 응답의 Edit 여럿은 PostToolUse 가 동시에 돌아서(공식 문서) 확인과 표시를 잠근 채 한다 —
+    잠그지 않으면 같은 알림이 두 번 갔다 (4단계 Fable 재현: 10번 중 4번).
+    """
+    with store.locked(store.project_dir(key) / "remind"):
+        if store.session_info(key, sid).get("reminded") == prompt_id:
+            return False
+        store.update_session(key, sid, reminded=prompt_id)
+    return True
+
+
+def remind(doing: list[str]) -> None:
+    """차례의 첫 파일 변경 때 한 번, 할 일에 적으라고 알린다 (2겹 알림).
+
+    Stop 훅은 끝내기를 막지 않고는 Claude 에게 말을 전할 수 없어서(공식 문서), 끝난 뒤
+    확인하는 대신 아직 일하는 중에 미리 알린다. 막지 않는다.
+    """
+    if len(doing) == 1:
+        text = REMIND_DOING.format(task=doing[0])
+    elif doing:
+        text = REMIND_MANY.format(tasks=", ".join(doing))
+    else:
+        text = REMIND_NONE
+    # 도구 결과 옆에 붙어 Claude 가 바로 본다
+    out = {"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": text}}
+    print(json.dumps(out, ensure_ascii=False))
+
+
+# --- 이벤트 ---
+
+
+def on_user_prompt(store, tasks_mod, key: str, data: dict) -> None:
+    sid = data.get("session_id")
+    if not sid:
+        return
+    name, need_hint = resolve_name(store, tasks_mod, key, data)
+    if need_hint:
+        hint(store, key, sid, name)
+    # 강제(Stop)가 '이번 차례에 완료로 바꾼 할 일'만 보게 차례가 시작된 시각을 둔다
+    store.update_session(key, sid, turn_started=time.time())
+
+
+def on_session_start(store, key: str, data: dict) -> None:
+    sid = data.get("session_id")
+    source = data.get("source")
+    if not sid:
+        return
+    if source == "clear":
+        take_name_after_clear(store, key, data)
+    if source in ("clear", "compact", "resume"):
+        name = store.session_info(key, sid).get("name")
+        if name:  # 이름이 아직 없으면 첫 UserPromptSubmit 이 정하고 알린다
+            hint(store, key, sid, name)
+
+
+def on_session_end(store, key: str, data: dict) -> None:
+    """/clear 직전: 옛 번호를 작업 폴더 기준으로 맡겨 둔다.
+    새 번호가 시작될 때 이름을 넘겨받는다."""
+    if data.get("reason") != "clear" or not data.get("session_id"):
+        return
+    pending = store.project_dir(key) / "clear-pending.json"
+    with store.locked(pending):
+        items = _read_json(pending)
+        items[store.same(data.get("cwd", ""))] = {"old": data["session_id"], "at": time.time()}
+        pending.write_text(json.dumps(items, ensure_ascii=False), encoding="utf-8")
+
+
+def take_name_after_clear(store, key: str, data: dict) -> None:
+    pending = store.project_dir(key) / "clear-pending.json"
+    with store.locked(pending):
+        items = _read_json(pending)
+        p = items.pop(store.same(data.get("cwd", "")), None)
+        pending.write_text(json.dumps(items, ensure_ascii=False), encoding="utf-8")
+    if not p or time.time() - p["at"] > CLEAR_TTL:
+        return
+    old = store.session_info(key, p["old"])
+    if old.get("name"):
+        # 같은 이름을 이어 쓰므로 그 이름으로 적힌 진행 중 할 일도 그대로 이 세션 것이 된다.
+        # 이름을 가르지 않는 유일한 경우다 — 옛 번호는 끝났고 이 세션이 그 대화를 잇는다.
+        # 받은 이름(title)도 넘겨야 다음 차례에 같은 이름이 와도 '새 이름'으로 보지 않는다
+        # 마지막 작업도 넘긴다 — 새 번호의 첫 Stop 전까지 화면의 세션 칸이 비지 않게
+        store.update_session(
+            key,
+            data["session_id"],
+            name=old["name"],
+            title=old.get("title"),
+            last_message=old.get("last_message"),
+            last_at=old.get("last_at"),
+        )
+
+
+def on_post_tool(store, tasks_mod, key: str, root: str, data: dict) -> None:
+    tool_input = data.get("tool_input")
+    if not isinstance(tool_input, dict):
+        return
+    path = tool_input.get("file_path") or tool_input.get("notebook_path")
+    if not path:
+        return
+    where = store.relative_in_project(path, root)
+    if where is None:  # 프로젝트 밖 파일 (메모리 · 할 일 파일 · 임시 파일)
+        return
+    rel, worktree = where
+    sid = data.get("session_id")
+    info = store.session_info(key, sid) if sid else {}
+    name = info.get("name")
+    doing = doing_tasks(store, tasks_mod, key, name) if name else []
+    prompt_id = data.get("prompt_id")
+    response = data.get("tool_response") or {}
+    op = "create" if isinstance(response, dict) and response.get("type") == "create" else "modify"
+    store.append_activity(
+        key,
+        {
+            "at": now(),
+            "session": sid,
+            "prompt": prompt_id,
+            "agent": data.get("agent_id"),  # 서브에이전트가 고쳤으면 그 번호
+            # 그 세션이 이때 진행 중이던 할 일 — 한 세션이 T-1 을 끝내고 T-2 를 해도 나눌 수 있게.
+            # 없거나 여럿이면 어디에 붙일지 모르므로 비운다
+            "task": doing[0] if len(doing) == 1 else None,
+            "op": op,
+            "path": rel,
+            "worktree": worktree,
+        },
+    )
+    # 서브에이전트는 할 일을 쓰지 않으므로(기록 규칙) 알리지 않는다. 이름이 없으면 기록 규칙을
+    # 모르는 세션이다 (알림을 받기 전)
+    if (
+        name
+        and prompt_id
+        and not data.get("agent_id")
+        and first_change_in_turn(store, key, sid, prompt_id)
+    ):
+        remind(doing)
+
+
+def on_stop(store, tasks_mod, key: str, data: dict) -> None:
+    sid = data.get("session_id")
+    if not sid:
+        return
+    message = (data.get("last_assistant_message") or "").strip()
+    if message:
+        # 시각은 화면 세션 칸의 "언제" — 파일 수정 시각은 차례 시작 때도 바뀌어 쓸 수 없다
+        store.update_session(key, sid, last_message=message[:LAST_MESSAGE_LIMIT], last_at=now())
+    # 2겹 강제. 한 번 막은 뒤(stop_hook_active)에는 다시 막지 않는다 — 채우지 못하는 상황에서
+    # 세션이 끝없이 붙잡히지 않게. 막는 것은 확실한 것 하나뿐이다 (ADR 0007)
+    if data.get("stop_hook_active"):
+        return
+    info = store.session_info(key, sid)
+    name, since = info.get("name"), info.get("turn_started")
+    if not name or since is None:
+        return
+    empty = done_without_work(store, tasks_mod, key, name, since)
+    if empty:
+        # decision:block 도 막지만 화면에 'Stop hook error' 로 뜬다. additionalContext 는
+        # 같은 효과에 'Stop hook feedback' 으로 뜬다 (공식 문서 · 실제 백그라운드 세션으로 확인)
+        print(
+            json.dumps(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "Stop",
+                        "additionalContext": BLOCK_REASON.format(
+                            items="\n".join(f"- {path}: {'; '.join(why)}" for path, why in empty)
+                        ),
+                    }
+                },
+                ensure_ascii=False,
+            )
+        )
+
+
+def done_without_work(
+    store, tasks_mod, key: str, name: str, since: float
+) -> list[tuple[Path, list[str]]]:
+    """이번 차례(since 이후)에 바뀐, 이 세션 이름의 완료 할 일 중 '한 일'이 비었거나 없는 것.
+    파일마다 형식 검사가 찾은 이유를 함께 준다 — '## 한일' 처럼 제목이 틀렸거나 두 번 있어서
+    비어 보이는 경우에 Claude 가 무엇을 고칠지 알게.
+
+    이번 차례로 좁히는 까닭: 사람이 손으로 완료한 옛 할 일 하나가 매 차례 끝내기를 막았고,
+    Claude 는 모르는 일을 지어 적어야 했다 (4단계 Fable 재현). ADR 0007 도 '완료로 바꿨는데' 다.
+    """
+    out = []
+    for _, path in task_files(store, tasks_mod, key):
+        try:
+            if path.stat().st_mtime < since - MTIME_SLACK:
+                continue
+            data = tasks_mod.parse(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            continue
+        meta = data["meta"]
+        if meta.get("status") != "done" or meta.get("session") != name:
+            continue
+        if any(
+            not tasks_mod.is_filled(data["sections"].get(s)) for s in tasks_mod.REQUIRED_WHEN_DONE
+        ):
+            out.append((path, tasks_mod.problems(path)))
+    return out
+
+
+def _read_json(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def run(event: str, data: dict) -> None:
+    # 파일 도구가 아닌 PostToolUse 는 프로젝트를 찾기(git 호출) 전에 끝낸다.
+    # 모든 세션에서 도는 훅이다
+    if event == "PostToolUse" and data.get("tool_name") not in FILE_TOOLS:
+        return
+    store, tasks_mod = _store()
+    found = store.find_project(os.environ.get("CLAUDE_PROJECT_DIR"), data.get("cwd"))
+    if found is None:
+        return
+    key, root = found
+    if event == "UserPromptSubmit":
+        on_user_prompt(store, tasks_mod, key, data)
+    elif event == "SessionStart":
+        on_session_start(store, key, data)
+    elif event == "SessionEnd":
+        on_session_end(store, key, data)
+    elif event == "PostToolUse":
+        on_post_tool(store, tasks_mod, key, root, data)
+    elif event == "Stop":
+        on_stop(store, tasks_mod, key, data)
+
+
+def log_error(argv: list[str]) -> None:
+    home = Path(os.environ.get("DEVDASH_HOME") or Path.home() / ".devdash")
+    home.mkdir(parents=True, exist_ok=True)
+    log = home / "hook-errors.log"
+    if log.exists() and log.stat().st_size > ERROR_LOG_LIMIT:
+        os.replace(log, log.with_suffix(".log.1"))  # 끝없이 커지지 않게 한 번 밀어 둔다
+    with open(log, "a", encoding="utf-8", errors="replace") as f:
+        f.write(f"{now()} {argv[1:]}\n{traceback.format_exc()}\n")
+
+
+def main(argv: list[str]) -> int:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        event = argv[1] if len(argv) > 1 else ""
+        raw = sys.stdin.buffer.read().decode("utf-8-sig")
+        data = json.loads(raw) if raw.strip() else {}
+        if isinstance(data, dict):
+            run(event, data)
+    except Exception:
+        with contextlib.suppress(Exception):
+            log_error(argv)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))

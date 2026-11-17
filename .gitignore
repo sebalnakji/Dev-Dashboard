@@ -1,0 +1,22 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.ruff_cache/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+
+# IDE
+.idea/
+.vscode/
+
+# 로컬 설정 · 로그 (사용자 상태는 ~/.devdash 로 옮길 예정, 그 전까지 저장소 안의 것을 막는다)
+config/servers.yaml
+config/sessions.json
+config/sessions.json.lock
+config/*.local.*
+/logs/

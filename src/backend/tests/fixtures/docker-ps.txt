@@ -1,0 +1,4 @@
+{"id":"aaaa11112222","name":"web","image":"web:1.0.0","state":"running","status":"Up 42 minutes","ports":"0.0.0.0:8080->8080/tcp, [::]:8080->8080/tcp","created":"2026-09-01 14:54:55 +0900 KST"}
+{"id":"bbbb11112222","name":"api","image":"api:2.1","state":"running","status":"Up 2 days (healthy)","ports":"0.0.0.0:9090->9090/tcp","created":"2026-08-31 09:12:03 +0900 KST"}
+{"id":"cccc11112222","name":"batch","image":"batch:0.9","state":"exited","status":"Exited (0) 3 days ago","ports":"","created":"2026-08-20 11:00:00 +0900 KST"}
+{"id":"dddd11112222","name":"cache","image":"redis:7","state":"paused","status":"Up 5 days (Paused)","ports":"6379/tcp","created":"2026-08-15 08:00:00 +0900 KST"}
