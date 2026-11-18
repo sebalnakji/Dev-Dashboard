@@ -178,6 +178,18 @@ def test_이어_열기는_전체_번호에_resume_만_붙인다(ran):
     assert ran[0]["args"] == ["--bg", "--resume", FIRST_A] and ran[0]["cwd"] == "C:/proj"
 
 
+def test_마지막_대화_번호는_clear_뒤에_바뀌는_resumeSessionId_에서(tmp_path, monkeypatch):
+    """/clear 하면 sessionId 는 처음 번호로 남고 resumeSessionId 만 새 번호가 된다."""
+    monkeypatch.setattr(agents, "JOBS", tmp_path)
+    (tmp_path / ID_A).mkdir()
+    state = {"sessionId": FIRST_A, "resumeSessionId": AFTER_CLEAR_A}
+    (tmp_path / ID_A / "state.json").write_text(json.dumps(state), encoding="utf-8")
+    assert agents.last_conversation(ID_A) == AFTER_CLEAR_A
+    (tmp_path / ID_A / "state.json").write_text(json.dumps({"sessionId": FIRST_A}), "utf-8")
+    assert agents.last_conversation(ID_A) == FIRST_A
+    assert agents.last_conversation("없음") is None
+
+
 def test_복원은_지우며_사라진_원격_제어를_다시_붙인다(ran):
     """지운 뒤라 원본이 없어 옵션을 붙여도 복사본이 생기지 않는다."""
     agents.restore("C:/proj", AFTER_CLEAR_A)

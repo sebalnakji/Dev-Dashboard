@@ -106,14 +106,22 @@ def all_sessions() -> list:
 
 
 def last_conversation(session_id: str) -> str | None:
-    """관리자가 기억하는 이 세션의 대화 번호 (내부 파일 jobs/<목록 번호>/state.json).
-    꺼진 세션의 대화 · 토큰을 보일 때 쓴다. 못 읽으면 None."""
+    """이 세션의 마지막 대화 번호 (내부 파일 jobs/<목록 번호>/state.json 의 resumeSessionId).
+    꺼진 세션의 대화 · 토큰을 보이고, 삭제 뒤 복원할 대화를 고를 때 쓴다. 못 읽으면 None.
+
+    /clear 하면 resumeSessionId 만 새 번호로 바뀌고 sessionId 는 처음 번호로 남는다
+    (2.1.327 에서 확인). 그래서 sessionId 를 읽으면 /clear 전 대화를 보게 된다."""
     try:
         state = json.loads((JOBS / session_id / "state.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    value = state.get("sessionId") if isinstance(state, dict) else None
-    return value if isinstance(value, str) and value else None
+    if not isinstance(state, dict):
+        return None
+    for key in ("resumeSessionId", "sessionId"):
+        value = state.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
 
 
 def explain(returncode: int, output: str) -> str | None:
