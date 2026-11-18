@@ -1,7 +1,7 @@
 """프로젝트 탭 API 테스트 (ADR 0007 · 0008).
 
-화면이 칸마다 하나씩 부르는 계약이다. 실제 ~/.devdash(세션 목록 포함)는 건드리지 않게
-DEVDASH_HOME 과 세션 목록 경로를 임시 폴더로 바꾼다. git 이력 · 파일 목록은 실제 git 저장소로 본다.
+화면이 칸마다 하나씩 부르는 계약이다. 실제 ~/.devdash(세션 배치 포함)는 건드리지 않게
+DEVDASH_HOME 과 세션 배치 경로를 임시 폴더로 바꾼다. git 이력 · 파일 목록은 실제 git 저장소로 본다.
 """
 
 from __future__ import annotations
@@ -33,14 +33,28 @@ def git(*args, cwd):
 
 
 class FakeSessions:
-    """라우트가 쓰는 것은 세션 목록 경로와 켜짐/꺼짐(rows) 뿐이다."""
+    """라우트가 쓰는 것은 세션 배치 경로와 세션 칸의 줄(rows) 뿐이다.
+    줄의 사람이 정한 프로젝트는 진짜 서비스처럼 배치 파일에서 읽는다."""
 
-    def __init__(self, path: Path, states: dict[str, str] | None = None):
+    def __init__(self, path: Path, base: list[dict]):
         self.path = path
-        self.states = states or {}
+        self.base = base
 
     def rows(self) -> list[dict]:
-        return [{"id": i, "state": s, "activity": "working"} for i, s in self.states.items()]
+        data = registry.load(self.path)
+        return [{**r, "project": registry.project_of(data, r["id"])} for r in self.base]
+
+
+def row(sid, name, cwd, group="G", state="off", activity=None, conversation=None) -> dict:
+    return {
+        "id": sid,
+        "name": name,
+        "group": group,
+        "cwd": str(cwd),
+        "state": state,
+        "activity": activity,
+        "conversation": conversation or sid,
+    }
 
 
 @pytest.fixture
@@ -56,18 +70,22 @@ def env(tmp_path, monkeypatch):
     other = tmp_path / "other"
     other.mkdir()
     sessions = tmp_path / "sessions.json"
-    registry.save(
-        [
-            {"id": "s-1", "name": "develope", "group": "G", "project": str(repo)},
-            {"id": "s-2", "name": "other-head", "group": "G", "project": str(other)},
-            {"id": "s-3", "name": "gone", "group": "H", "project": str(tmp_path / "없음")},
-        ],
-        sessions,
-    )
+    base = [
+        row("s-1", "develope", repo, state="on", activity="working"),
+        row("s-2", "other-head", other),
+        row("s-3", "gone", tmp_path / "없음", group="H"),
+    ]
     app = FastAPI()
-    app.state.claude = FakeSessions(sessions, {"s-1": "on"})
+    app.state.claude = FakeSessions(sessions, base)
     app.include_router(router)
-    return {"repo": repo, "other": other, "sessions": sessions, "app": app, "tmp": tmp_path}
+    return {
+        "repo": repo,
+        "other": other,
+        "sessions": sessions,
+        "base": base,
+        "app": app,
+        "tmp": tmp_path,
+    }
 
 
 @pytest.fixture
@@ -221,17 +239,16 @@ def test_git_이_아니면_폴더를_훑되_무거운_폴더는_건너뛴다(cli
     assert [f["path"] for f in out["files"]] == ["docs/a.md"]
 
 
-def test_세션은_사람이_넣은_것만_보이고_기록이_없으면_훅의_시각을_쓴다(client, env):
+def test_세션은_작업_폴더로_자동_소속이고_기록이_없으면_훅의_시각을_쓴다(client, env):
     key = add(client, env)
-    assert client.get(f"/api/projects/{key}/sessions").json() == []
     choices = {c["id"]: c for c in client.get(f"/api/projects/{key}/session-choices").json()}
-    assert choices["s-1"]["suggested"] and not choices["s-2"]["suggested"]
-    assert not choices["s-3"]["suggested"]  # 폴더가 없다
-    assert client.put(f"/api/projects/{key}/sessions", json={"ids": ["s-1"]}).json() == {"ok": True}
+    assert choices["s-1"]["auto"] and choices["s-1"]["member"]
+    assert not choices["s-2"]["auto"] and not choices["s-3"]["auto"]  # 다른 폴더 · 없는 폴더
     store.update_session(key, "s-1", name="develope", last_at="2026-11-12T10:00:00")
     (s,) = client.get(f"/api/projects/{key}/sessions").json()
     assert (s["name"], s["group"], s["state"], s["activity"]) == ("develope", "G", "on", "working")
     assert (s["replies"], s["lastAt"]) == ([], "2026-11-12T10:00:00")
+    assert registry.load(env["sessions"])["sessions"] == {}  # 자동 소속은 적어 두지 않는다
 
 
 def test_세션_한_줄은_대화_기록에서_답_시각을_뽑는다(client, env, monkeypatch):
@@ -250,42 +267,42 @@ def test_세션_한_줄은_대화_기록에서_답_시각을_뽑는다(client, e
         say("assistant", [{"type": "text", "text": "둘째 답"}], "2026-11-13T02:05:00Z"),
     ]
     log.write_text("\n".join(json.dumps(x, ensure_ascii=False) for x in lines), "utf-8")
-    entries = registry.load(env["sessions"])
-    entries.append({"id": sid, "name": "새 세션", "group": "G", "project": str(env["repo"])})
-    registry.save(entries, env["sessions"])
+    env["base"][:] = [row("n-1", "새 세션", env["repo"], conversation=sid)]
     key = add(client, env)
-    client.put(f"/api/projects/{key}/sessions", json={"ids": [sid]})
     (s,) = client.get(f"/api/projects/{key}/sessions").json()
     assert s["state"] == "off" and s["activity"] is None
     assert s["replies"] == ["2026-11-13T01:01:00Z", "2026-11-13T02:05:00Z"]
     assert s["lastAt"] == "2026-11-13T02:05:00Z"
 
 
-def test_세션_고르기는_뺀_세션을_지우고_다른_필드는_그대로_둔다(client, env):
+def test_세션_고르기는_바꾼_것만_적고_자동과_같으면_지운다(client, env):
     key = add(client, env)
-    client.put(f"/api/projects/{key}/sessions", json={"ids": ["s-1", "s-2"]})
+    # 자동 소속 s-1 을 빼고, 다른 폴더의 s-2 를 넣는다
     client.put(f"/api/projects/{key}/sessions", json={"ids": ["s-2"]})
-    saved = {e["id"]: e for e in json.loads(env["sessions"].read_text("utf-8"))["sessions"]}
-    assert "project_key" not in saved["s-1"] and saved["s-2"]["project_key"] == key
-    assert saved["s-2"]["project"] == str(env["other"]) and saved["s-2"]["group"] == "G"
+    saved = registry.load(env["sessions"])["sessions"]
+    assert saved["s-1"]["project"] == "" and saved["s-2"]["project"] == key
+    assert [s["id"] for s in client.get(f"/api/projects/{key}/sessions").json()] == ["s-2"]
+    # 되돌리면 적어 둔 것이 사라지고 다시 자동이 된다
+    client.put(f"/api/projects/{key}/sessions", json={"ids": ["s-1"]})
+    assert all("project" not in e for e in registry.load(env["sessions"])["sessions"].values())
 
 
-def test_다른_프로젝트에_넣은_세션은_표시하고_옮기면_한_곳에만_속한다(client, env):
+def test_다른_프로젝트에_속한_세션은_표시하고_옮기면_한_곳에만_속한다(client, env):
     key = add(client, env)
     other = client.post("/api/projects", json={"root": str(env["other"])}).json()["key"]
-    client.put(f"/api/projects/{other}/sessions", json={"ids": ["s-2"]})
+    # s-2 는 작업 폴더로 other 소속이다
     choices = {c["id"]: c for c in client.get(f"/api/projects/{key}/session-choices").json()}
     assert choices["s-2"]["elsewhere"] and not choices["s-2"]["member"]
-    client.put(f"/api/projects/{key}/sessions", json={"ids": ["s-2"]})
+    client.put(f"/api/projects/{key}/sessions", json={"ids": ["s-1", "s-2"]})
     assert client.get(f"/api/projects/{other}/sessions").json() == []
 
 
 def test_훅의_시각은_다른_프로젝트에_남은_기록에서도_찾는다(client, env):
     key = add(client, env)
     other = client.post("/api/projects", json={"root": str(env["other"])}).json()["key"]
-    client.put(f"/api/projects/{key}/sessions", json={"ids": ["s-2"]})
+    client.put(f"/api/projects/{key}/sessions", json={"ids": ["s-1", "s-2"]})
     store.update_session(other, "s-2", last_at="2026-11-12T09:00:00")
-    (s,) = client.get(f"/api/projects/{key}/sessions").json()
+    s = {s["id"]: s for s in client.get(f"/api/projects/{key}/sessions").json()}["s-2"]
     assert s["lastAt"] == "2026-11-12T09:00:00" and s["state"] == "off"
 
 
@@ -513,14 +530,13 @@ def test_작업용_복사본에서_일하는_세션도_원래_저장소로_모�
     """후보 · 추가 · 미리 체크가 모두 원래 저장소 기준이어야 한다 (ADR 0008)."""
     wt = env["repo"] / ".claude" / "worktrees" / "bg"
     git("worktree", "add", "-q", str(wt), "-b", "bg", cwd=env["repo"])
-    with registry.editing(env["sessions"]) as entries:
-        entries.append({"id": "s-4", "name": "bg-head", "group": "G", "project": str(wt / "src")})
+    env["base"].append(row("s-4", "bg-head", wt / "src"))
     (cand,) = [c for c in client.get("/api/projects/candidates").json() if c["name"] == "repo"]
     assert sorted(cand["sessions"]) == ["bg-head", "develope"]
     key = client.post("/api/projects", json={"root": str(wt)}).json()["key"]
     assert key == store.project_key(store.main_path(str(env["repo"])))
     choices = {c["id"]: c for c in client.get(f"/api/projects/{key}/session-choices").json()}
-    assert choices["s-4"]["suggested"] and choices["s-1"]["suggested"]
+    assert choices["s-4"]["auto"] and choices["s-1"]["auto"]
 
 
 @pytest.mark.parametrize(
@@ -626,21 +642,17 @@ def test_깨진_할_일_파일도_목록이_죽지_않고_문제로_보인다(cl
     assert client.get(f"/api/projects/{key}/tasks/5").status_code == 404
 
 
-def test_창을_연_사이_번호가_바뀐_세션은_빼지_않고_다시_열게_한다(client, env):
-    """/clear 로 번호가 바뀐 뒤 옛 번호로 저장하면 그 세션이 조용히 빠졌다 (Fable 재현)."""
+def test_창을_연_사이_삭제된_세션이_있으면_저장하지_않고_다시_열게_한다(client, env):
+    """그대로 저장하면 그 사이 생긴 변화가 조용히 섞인다."""
     key = add(client, env)
-    client.put(f"/api/projects/{key}/sessions", json={"ids": ["s-1"]})
-    with registry.editing(env["sessions"]) as entries:  # /clear 훅이 번호를 바꾼다
-        next(e for e in entries if e["id"] == "s-1")["id"] = "s-1-new"
-    r = client.put(f"/api/projects/{key}/sessions", json={"ids": ["s-1", "s-2"]})
+    r = client.put(f"/api/projects/{key}/sessions", json={"ids": ["s-지워짐", "s-2"]})
     assert r.status_code == 409 and "다시 열어" in r.json()["error"]
-    saved = {e["id"]: e for e in registry.load(env["sessions"])}
-    assert saved["s-1-new"]["project_key"] == key and "project_key" not in saved["s-2"]
+    assert registry.load(env["sessions"])["sessions"] == {}
 
 
 def test_모르는_프로젝트로는_세션을_넣지_않는다(client, env):
     assert client.put("/api/projects/없음/sessions", json={"ids": ["s-1"]}).status_code == 404
-    assert all("project_key" not in e for e in registry.load(env["sessions"]))
+    assert registry.load(env["sessions"])["sessions"] == {}
 
 
 def test_폴더_선택_창이_열려_있으면_또_띄우지_않는다(client, monkeypatch):
@@ -703,12 +715,13 @@ def test_이름을_바꾸면_목록에_보이고_빈_이름은_받지_않는다(
 def test_등록을_풀면_목록과_세션_소속에서_빠지고_다시_추가하면_기록이_이어진다(client, env):
     key = add(client, env)
     write_task(key, 1, "doing", "develope")
-    client.put(f"/api/projects/{key}/sessions", json={"ids": ["s-1"]})
+    client.put(f"/api/projects/{key}/sessions", json={"ids": ["s-1", "s-2"]})
     client.put("/api/projects/order", json={"keys": [key]})
     assert client.delete(f"/api/projects/{key}").json() == {"ok": True}
     assert client.get("/api/projects").json() == []
     assert store.find_project(str(env["repo"])) is None  # 훅도 더는 기록하지 않는다
-    assert all("project_key" not in e for e in registry.load(env["sessions"]))
+    # 보이지 않는 프로젝트로 정해 둔 세션은 자동 소속으로 돌아간다
+    assert all("project" not in e for e in registry.load(env["sessions"])["sessions"].values())
     assert json.loads((store.home() / "project-order.json").read_text("utf-8")) == []
     again = add(client, env)
     assert again == key and [

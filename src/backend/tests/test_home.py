@@ -67,10 +67,10 @@ def test_로그는_현재_폴더가_아니라_DEVDASH_HOME_에_쓴다(home, tmp_
             root.removeHandler(handler)
 
 
-def test_세션_목록도_DEVDASH_HOME_에_쓴다(home):
+def test_세션_배치도_DEVDASH_HOME_에_쓴다(home):
     from devdash.claude import registry
 
-    with registry.editing() as entries:
-        entries.append({"id": "x", "name": "n"})
-    assert registry.load() == [{"id": "x", "name": "n"}]
+    with registry.editing() as data:
+        registry.add_group(data, "G")
+    assert registry.load()["groups"] == [{"name": "G", "collapsed": False}]
     assert (home / "sessions.json").exists()

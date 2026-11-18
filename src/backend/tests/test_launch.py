@@ -127,6 +127,11 @@ def test_start_는_서버가_댄_PID_를_기록한다(home, serve_fake, monkeypa
     """윈도우 가상환경의 python.exe 는 중계 프로그램이라 띄운 프로세스 PID 와 서버 PID 가 다르다."""
     port = serve_fake({"app": "devdash", "pid": 777})
     monkeypatch.setattr(launch, "port_in_use", lambda p: False)
+    # 화면 빌드본이 없으면 빌드부터 한다 — 저장소에 빌드본이 있는지에 기대지 않게
+    repo = home["dir"] / "repo"
+    (repo / "src" / "frontend" / "dist").mkdir(parents=True)
+    (repo / "src" / "frontend" / "dist" / "index.html").write_text("")
+    monkeypatch.setattr(launch, "REPO", repo)
 
     class Proc:
         pid = 111

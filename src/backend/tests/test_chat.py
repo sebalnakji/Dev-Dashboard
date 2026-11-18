@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from devdash.api.claude_routes import router
-from devdash.claude import chat, registry
+from devdash.claude import chat
 
 SID = "11111111-2222-3333-4444-555555555555"
 
@@ -198,24 +198,22 @@ def test_번호_모양이_아니면_찾지_않고_작업용_복사본_폴더에�
 
 
 class FakeSessions:
-    """라우트가 쓰는 것은 세션 목록에서 번호로 찾기(entry) 뿐이다."""
+    """라우트가 쓰는 것은 '지금 보이는 세션의 대화 번호 찾기'(conversation_of) 뿐이다."""
 
-    def __init__(self, path: Path):
-        self.path = path
+    def __init__(self, known: dict[str, str]):
+        self.known = known
 
-    def entry(self, session_id: str) -> dict | None:
-        return next((e for e in registry.load(self.path) if e["id"] == session_id), None)
+    def conversation_of(self, key: str) -> str | None:
+        return self.known.get(key)
 
 
 def test_세션_목록에_있는_세션만_대화를_준다(tmp_path, log, monkeypatch):
     monkeypatch.setattr(chat, "PROJECTS", tmp_path)
-    sessions = tmp_path / "sessions.json"
-    registry.save([{"id": SID, "name": "a", "group": "g", "project": str(tmp_path)}], sessions)
     app = FastAPI()
-    app.state.claude = FakeSessions(sessions)
+    app.state.claude = FakeSessions({"aaaaaaaa": SID})  # 목록 번호 → 대화 번호
     app.include_router(router)
     client = TestClient(app)
-    r = client.get(f"/api/claude/sessions/{SID}/chat", params={"limit": 1})
+    r = client.get("/api/claude/sessions/aaaaaaaa/chat", params={"limit": 1})
     assert r.status_code == 200 and r.json()["messages"][-1]["text"] == "마지막 답"
     other = "99999999-2222-3333-4444-555555555555"
     assert client.get(f"/api/claude/sessions/{other}/chat").status_code == 404

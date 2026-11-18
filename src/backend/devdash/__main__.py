@@ -7,7 +7,6 @@ devdash uninstall       setup 이 바꾼 Claude Code 설정을 되돌린다 (묻
 devdash list            설정된 서버 목록을 본다
 devdash check           접속해서 지표를 한 번 수집해본다 (진단용)
 devdash serve           웹 대시보드를 이 창에서 띄운다
-devdash claude list     관리할 Claude 세션 목록과 상태를 본다 (add / remove 도 있다)
 
 설정 · 세션 목록 · 로그는 모두 ~/.devdash 에 있다 (DEVDASH_HOME 으로 바꿀 수 있다).
 """
@@ -66,25 +65,7 @@ def main(argv: list[str] | None = None) -> int:
     # 바꿀 때는 src/frontend/vite.config.ts 의 프록시 대상도 같이 고쳐야 한다.
     serve.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"포트. 기본 {DEFAULT_PORT}")
 
-    claude = sub.add_parser("claude", help="관리할 Claude 세션 목록을 다룬다")
-    csub = claude.add_subparsers(dest="action", required=True)
-    csub.add_parser("list", help="목록과 상태(켜짐/꺼짐)를 그룹별로 본다")
-    add = csub.add_parser("add", help="실행 중 세션을 목록에 넣는다")
-    add.add_argument("key", help="대화 번호 앞자리 (claude list 의 추가 후보에서 고른다)")
-    add.add_argument("--name", help="표시 이름 (생략하면 지금 이름)")
-    add.add_argument("--group", help="그룹 (생략하면 default)")
-    add.add_argument("--project", help="프로젝트 폴더 (생략하면 세션의 작업 폴더)")
-    remove = csub.add_parser("remove", help="목록에서 뺀다")
-    remove.add_argument("key", help="대화 번호 앞자리 또는 이름")
-    csub.add_parser("hook-end", help="(Claude 훅 전용) /clear 직전 옛 번호를 맡겨 둔다")
-    csub.add_parser("hook-start", help="(Claude 훅 전용) /clear 직후 목록 번호를 새 번호로 바꾼다")
-
     args = parser.parse_args(argv)
-    if args.command == "claude" and args.action.startswith("hook-"):
-        # 훅은 세션 안에서 조용히 돌아야 한다. 로그 설정·출력 없이 바로 처리한다
-        from devdash.claude.commands import cmd_hook
-
-        return cmd_hook(args.action)
     use_utf8_when_redirected()
     if args.command in ("setup", "uninstall", "start", "stop"):
         # 사람이 콘솔에서 결과를 보는 명령이라 로그 파일을 만들지 않는다
@@ -100,18 +81,6 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_check(args.config, args.server, args.interval)
         if args.command == "serve":
             return cmd_serve(args.config, args.host, args.port)
-        if args.command == "claude":
-            from devdash.claude import commands
-            from devdash.home import sessions_path
-
-            path = sessions_path()
-
-            if args.action == "list":
-                return commands.cmd_list(path)
-            if args.action == "add":
-                return commands.cmd_add(path, args.key, args.name, args.group, args.project)
-            if args.action == "remove":
-                return commands.cmd_remove(path, args.key)
     except (FileNotFoundError, KeyError, ValueError) as exc:
         print(f"오류: {exc}", file=sys.stderr)
         return 1

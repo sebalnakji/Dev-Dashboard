@@ -21,7 +21,7 @@ from datetime import datetime
 
 from devdash import commit_summary as commit_summary_ai
 from devdash import gitdiff
-from devdash.claude import chat
+from devdash.claude import chat, registry
 from devdash.home import PLUGIN_SCRIPTS  # noqa: F401 — 플러그인 스크립트를 import 경로에 올린다
 from devdash.local import run_bounded
 
@@ -240,11 +240,12 @@ def unregister(key: str) -> None:
         _write_json(_order_path(), [k for k in order if k != key])
 
 
-def drop_members(key: str, entries: list[dict]) -> None:
-    """등록을 푼 프로젝트에 넣어 둔 세션을 뺀다 (보이지 않는 프로젝트에 묶여 있지 않게)."""
-    for e in entries:
-        if e.get("project_key") == key:
-            del e["project_key"]
+def drop_members(key: str, data: dict) -> None:
+    """등록을 푼 프로젝트로 정해 둔 세션을 자동 소속으로 돌린다
+    (보이지 않는 프로젝트에 묶이지 않게)."""
+    for sid, entry in data["sessions"].items():
+        if entry.get("project") == key:
+            registry.set_project(data, sid, None)
 
 
 class _MainPaths:
@@ -261,14 +262,14 @@ class _MainPaths:
         return self._seen[folder]
 
 
-def candidates(entries: list[dict]) -> list[dict]:
-    """추가 후보: 세션 목록(sessions.json)의 프로젝트 폴더 중 아직 등록 안 된 것.
+def candidates(rows: list[dict]) -> list[dict]:
+    """추가 후보: 세션들의 작업 폴더 중 아직 등록 안 된 저장소.
     작업용 복사본 · 하위 폴더는 원래 저장소로 모은다. 폴더마다 거기서 일하는 세션 이름을 준다."""
     registered = {store.same(v["root"]) for k in store.projects() if (v := project(k))}
     main = _MainPaths()
     found: dict[str, dict] = {}
-    for e in entries:
-        folder = e.get("project") or ""
+    for e in rows:
+        folder = e.get("cwd") or ""
         root = main(folder)
         if root is None or store.same(root) in registered:
             continue
@@ -497,72 +498,102 @@ def _chat_summary(session_id: str) -> dict:
     return value
 
 
-def sessions(key: str, entries: list[dict], live_rows: list[dict]) -> list[dict]:
-    """왼쪽 세션 칸: 사람이 이 프로젝트에 넣은 세션(sessions.json 의 project_key).
+def _home_project(rows: list[dict]) -> dict[str, str | None]:
+    """세션마다 작업 폴더로 정해지는 프로젝트 키 (작업용 복사본 · 하위 폴더는 원래 저장소로).
+    등록된 프로젝트의 폴더가 아니면 None."""
+    roots = {store.same(v["root"]): k for k in store.projects() if (v := project(k))}
+    main = _MainPaths()
+    return {r["id"]: roots.get(store.same(main(r.get("cwd") or "") or "")) for r in rows}
 
-    한 줄에 이름 · 지금 하는 일 · 새 답 수 · 시각을 보인다 (T-9). 새 답 수는 화면이
+
+def _membership(key: str, rows: list[dict]) -> dict[str, tuple[bool, bool]]:
+    """세션마다 (이 프로젝트 소속인가, 작업 폴더로 정해진 자동 소속인가).
+    사람이 정한 것(row["project"])이 있으면 그것을 따르고, 없으면 작업 폴더를 따른다."""
+    home = _home_project(rows)
+    out = {}
+    for r in rows:
+        auto = home[r["id"]] == key
+        chosen = r.get("project")
+        out[r["id"]] = (auto if chosen is None else chosen == key, auto)
+    return out
+
+
+def sessions(key: str, rows: list[dict]) -> list[dict]:
+    """왼쪽 세션 칸: 이 프로젝트 소속 세션 (작업 폴더로 자동 + 사람이 바꾼 것).
+
+    한 줄에 이름 · 지금 하는 일 · 새 답 수 · 시각을 보인다. 새 답 수는 화면이
     '마지막으로 본 시각'과 replies 를 견주어 센다 — 본 시각은 보는 사람(브라우저)마다 다르다.
-    켜짐/꺼짐은 세션 칸과 같은 값을 쓴다."""
-    live = {r["id"]: r for r in live_rows}
+    rows 는 세션 칸과 같은 줄(SessionService.rows)이라 켜짐/꺼짐 · 토큰이 같은 값이다."""
+    member = _membership(key, rows)
     out = []
-    for e in entries:
-        if e.get("project_key") != key:
+    for r in rows:
+        if not member[r["id"]][0]:
             continue
-        row = live.get(e["id"], {})
-        talk = _chat_summary(e["id"])
+        conversation = r.get("conversation") or ""
+        talk = _chat_summary(conversation)
         out.append(
             {
-                "id": e["id"],
-                "name": e.get("name", ""),
-                "group": e.get("group", ""),
-                "state": row.get("state", "off"),
-                "activity": row.get("activity"),
-                # 컨텍스트 토큰 수 · 압축 횟수 (T-21) — 모니터링 탭의 세션 칸과 같은 값
-                "tokens": row.get("tokens"),
-                "compactions": row.get("compactions", 0),
+                "id": r["id"],
+                "name": r["name"],
+                "group": r.get("group") or "",
+                "state": r.get("state", "off"),
+                "activity": r.get("activity"),
+                # 컨텍스트 토큰 수 · 압축 횟수 — 모니터링 탭의 세션 칸과 같은 값
+                "tokens": r.get("tokens"),
+                "compactions": r.get("compactions", 0),
                 "replies": talk.get("replies", []),
                 # 기록 파일을 못 찾으면 훅이 남긴 마지막 답 시각으로
-                "lastAt": talk.get("lastAt") or _session_record(e["id"], key).get("last_at"),
+                "lastAt": talk.get("lastAt") or _session_record(conversation, key).get("last_at"),
             }
         )
     return sorted(out, key=lambda s: s["name"].casefold())
 
 
-def session_choices(key: str, entries: list[dict]) -> list[dict]:
-    """[세션 고르기] 창: 세션 목록 전부(그룹별). 이미 넣은 것 · 다른 프로젝트에 넣은 것 ·
-    같은 저장소라 미리 체크할 것을 표시한다."""
-    root = store.same(project(key)["root"])
-    main = _MainPaths()
+def session_choices(key: str, rows: list[dict]) -> list[dict]:
+    """[세션 고르기] 창: 세션 전부(그룹별). 지금 소속인 것 · 작업 폴더로 자동인 것 ·
+    다른 프로젝트로 정해 둔 것을 표시한다."""
+    member = _membership(key, rows)
+    home = _home_project(rows)
+
+    def belongs(r: dict) -> str | None:
+        chosen = r.get("project")
+        return home[r["id"]] if chosen is None else (chosen or None)
+
     out = [
         {
-            "id": e["id"],
-            "name": e.get("name", ""),
-            "group": e.get("group", ""),
-            "member": e.get("project_key") == key,
-            "elsewhere": bool(e.get("project_key")) and e.get("project_key") != key,
-            "suggested": store.same(main(e.get("project") or "") or "") == root,
+            "id": r["id"],
+            "name": r["name"],
+            "group": r.get("group") or "",
+            "member": member[r["id"]][0],
+            # 다른 프로젝트 소속 (사람이 정했거나 작업 폴더가 그쪽). 고르면 이쪽으로 옮겨진다
+            "elsewhere": belongs(r) not in (None, key),
+            "auto": member[r["id"]][1],
         }
-        for e in entries
+        for r in rows
     ]
     return sorted(out, key=lambda c: (c["group"].casefold(), c["name"].casefold()))
 
 
-def set_members(key: str, entries: list[dict], ids: list[str]) -> None:
-    """고른 세션을 이 프로젝트에 넣고, 빠진 세션은 뺀다. 한 세션은 한 프로젝트에만 속한다.
+def set_members(key: str, data: dict, rows: list[dict], ids: list[str]) -> None:
+    """고른 세션을 이 프로젝트 소속으로, 빠진 세션은 소속에서 뺀다. 한 세션은 한 프로젝트에만.
+    작업 폴더로 정해지는 것과 같으면 따로 적지 않는다 (자동으로 돌린다).
 
-    목록에 없는 번호가 오면 고치지 않고 ValueError — 창을 연 사이 그 세션이 /clear 해서
-    번호가 바뀐 것이다. 그대로 저장하면 그 세션이 조용히 빠졌다 (6단계 Fable 재현).
+    목록에 없는 번호가 오면 고치지 않고 ValueError — 창을 연 사이 그 세션이 삭제된 것이다.
+    그대로 저장하면 그 세션이 조용히 빠진다.
     """
-    known = {e["id"] for e in entries}
-    stale = [i for i in ids if i not in known]
+    member = _membership(key, rows)
+    stale = [i for i in ids if i not in member]
     if stale:
         raise ValueError("세션 목록이 바뀌었습니다. 창을 다시 열어 주세요")
     chosen = set(ids)
-    for e in entries:
-        if e["id"] in chosen:
-            e["project_key"] = key
-        elif e.get("project_key") == key:
-            del e["project_key"]
+    for r in rows:
+        sid = r["id"]
+        now, auto = member[sid]
+        if sid in chosen:
+            registry.set_project(data, sid, None if auto else key)
+        elif now:
+            # 자동 소속을 뺀 것은 "어디에도 넣지 않음"으로 적어 둬야 다시 자동으로 들어오지 않는다
+            registry.set_project(data, sid, "" if auto else None)
 
 
 # --- 오른쪽: git 이력 ---

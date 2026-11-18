@@ -23,8 +23,9 @@ from devdash.commit_summary import SummaryError
 router = APIRouter(prefix="/api/projects")
 
 
-def _entries(request: Request) -> list[dict]:
-    return registry.load(request.app.state.claude.path)
+def _rows(request: Request) -> list[dict]:
+    """세션 칸과 같은 줄 (목록 번호 · 이름 · 작업 폴더 · 상태 · 사람이 정한 프로젝트)."""
+    return request.app.state.claude.rows()
 
 
 def _error(message: str, status: int) -> JSONResponse:
@@ -52,7 +53,7 @@ def list_projects() -> list[dict]:
 
 @router.get("/candidates")
 def candidates(request: Request) -> list[dict]:
-    return records.candidates(_entries(request))
+    return records.candidates(_rows(request))
 
 
 class AddBody(BaseModel):
@@ -100,8 +101,8 @@ def unregister(request: Request, key: str) -> JSONResponse:
         return bad
     records.unregister(key)
     try:
-        with registry.editing(request.app.state.claude.path) as entries:
-            records.drop_members(key, entries)
+        with registry.editing(request.app.state.claude.path) as data:
+            records.drop_members(key, data)
     except TimeoutError:
         pass  # 세션 목록을 못 고쳐도 등록 해제는 끝났다. 세션은 다음에 고를 때 다른 데로 옮겨진다
     return JSONResponse({"ok": True})
@@ -155,13 +156,12 @@ def read_file(key: str, path: str) -> JSONResponse:
 def sessions(request: Request, key: str) -> JSONResponse:
     if bad := _check(key):
         return bad
-    rows = request.app.state.claude.rows()
-    return JSONResponse(records.sessions(key, _entries(request), rows))
+    return JSONResponse(records.sessions(key, _rows(request)))
 
 
 @router.get("/{key}/session-choices")
 def session_choices(request: Request, key: str) -> JSONResponse:
-    return _check(key) or JSONResponse(records.session_choices(key, _entries(request)))
+    return _check(key) or JSONResponse(records.session_choices(key, _rows(request)))
 
 
 class MembersBody(BaseModel):
@@ -173,9 +173,10 @@ def set_sessions(request: Request, key: str, body: MembersBody) -> JSONResponse:
     if bad := _check(key):
         return bad
     try:
-        # /clear 훅 · claude add 와 겹쳐도 갱신이 사라지지 않게 잠근 채 고친다
-        with registry.editing(request.app.state.claude.path) as entries:
-            records.set_members(key, entries, body.ids)
+        # 세션 칸의 끌어 놓기 · 삭제와 겹쳐도 갱신이 사라지지 않게 잠근 채 고친다
+        rows = _rows(request)
+        with registry.editing(request.app.state.claude.path) as data:
+            records.set_members(key, data, rows, body.ids)
     except (ValueError, TimeoutError) as exc:
         return _error(str(exc), 409)
     return JSONResponse({"ok": True})
