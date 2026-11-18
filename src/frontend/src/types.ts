@@ -97,23 +97,74 @@ export interface ContainersResponse {
 
 /**
  * on       백그라운드로 켜져 있음        off      꺼짐
- * terminal 터미널에서 연 세션(끌 수 없음)  starting · stopping  바뀌는 중
+ * terminal 터미널에서 연 세션(끌 수 없음)  starting · stopping · deleting  바뀌는 중
  */
-export type SessionState = 'on' | 'off' | 'terminal' | 'starting' | 'stopping'
+export type SessionState = 'on' | 'off' | 'terminal' | 'starting' | 'stopping' | 'deleting'
 
+/** 백그라운드 세션 한 줄. id 는 claude agents 의 목록 번호 (/clear 해도 그대로). */
 export interface SessionRow {
   id: string
+  /** Claude 쪽 이름. 비었으면 '폴더 이름 · 번호 앞 8자리' */
   name: string
-  group: string
+  /** Claude 쪽 이름이 있는가 */
+  named: boolean
+  /** null 이면 "분류 안 됨" */
+  group: string | null
+  order: number | null
+  cwd: string
   state: SessionState
-  /** 컨텍스트에 든 토큰 수 (마지막 답 기준). 기록이 없으면 null (T-21) */
+  /** 컨텍스트에 든 토큰 수 (마지막 답 기준). 기록이 없으면 null */
   tokens: number | null
-  /** 대화를 압축한 횟수 (T-21) */
+  /** 대화를 압축한 횟수 */
   compactions: number
-  /** 연결이 실패했을 때 그 이유. 뒤늦게 알게 되므로 목록 갱신에 실려 온다. */
+  /** 실패했을 때 그 이유. 뒤늦게 알게 되므로 목록 갱신에 실려 온다. */
   error?: string
   /** 같은 실패를 한 번만 띄우려고 함께 오는 실패 시각. */
   errorAt?: number
+}
+
+export interface SessionGroup {
+  name: string
+  collapsed: boolean
+}
+
+/** 터미널에서 연 세션. 목록 번호가 없어 보이기만 한다. */
+export interface InteractiveSession {
+  sessionId: string
+  name: string
+  cwd: string
+  state: 'terminal'
+  tokens: number | null
+  compactions: number
+}
+
+/** [삭제]한 세션의 복원 정보 (30일). */
+export interface DeletedSession {
+  id: string
+  name: string
+  group: string | null
+  cwd: string
+  sessionId: string
+  /** 초 (유닉스 시각) */
+  deletedAt: number
+  /** 대화 기록 파일이 남아 있어 복원할 수 있는가 */
+  restorable: boolean
+  restoring: boolean
+}
+
+export interface SessionsView {
+  groups: SessionGroup[]
+  sessions: SessionRow[]
+  interactive: InteractiveSession[]
+  deleted: DeletedSession[]
+  /** 줄이 없는 실패 (복원 실패 등) */
+  failures: { error: string; errorAt: number }[]
+}
+
+/** 새 세션의 폴더 후보. project 는 프로젝트 탭에 등록된 폴더 */
+export interface FolderChoice {
+  path: string
+  project: boolean
 }
 
 /** 버튼 동작의 응답. 확인이 필요하면 confirm 의 말을 물어보고 force 로 다시 보낸다. */
@@ -193,10 +244,10 @@ export interface SessionChoice {
   name: string
   group: string
   member: boolean
-  /** 다른 프로젝트에 넣은 세션 (고르면 이쪽으로 옮겨진다) */
+  /** 다른 프로젝트 소속 (사람이 정했거나 작업 폴더가 그쪽). 고르면 이쪽으로 옮겨진다 */
   elsewhere: boolean
-  /** 같은 저장소에서 일하는 세션이라 미리 체크를 권한다 */
-  suggested: boolean
+  /** 작업 폴더가 이 프로젝트라 자동으로 소속되는 세션 */
+  auto: boolean
 }
 
 export interface TaskRow {

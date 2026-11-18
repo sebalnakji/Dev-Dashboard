@@ -6,7 +6,7 @@ import { Modal } from '../components/Modal'
 import { BUTTON, NOTICE, agoIso, reasonOf } from '../components/styles'
 import { useNow } from '../hooks/useNow'
 import type { ActionResult, ProjectSession, SessionChoice } from '../types'
-import { pickedBefore, rememberPicked, rememberSeen, seenAt } from './remember'
+import { rememberSeen, seenAt } from './remember'
 
 /** 백엔드가 보내는 최근 답 시각의 수 (chat.REPLY_WINDOW). 새 답이 이만큼이면 '20+' 로 보인다. */
 const REPLY_WINDOW = 20
@@ -46,7 +46,7 @@ function freshCount(s: ProjectSession, selected: boolean): number {
  * [세션] 보기 왼쪽: 이 프로젝트의 세션 목록. 누르면 오른쪽에 그 세션의 대화가 열린다 (T-8).
  * 한 줄에 이름 · 지금 하는 일(답변 중 / 확인 필요 / 쉬는 중 / 꺼짐) · 마지막으로 본 뒤 새 답 수 ·
  * 시각 (T-9). 대화 미리보기는 두지 않는다 (사용자 결정). 본 시각은 이 브라우저가 세션마다 기억한다.
- * 어떤 세션이 이 프로젝트 것인지는 사람이 [세션 고르기]로 정한다 (ADR 0007).
+ * 어떤 세션이 이 프로젝트 것인지는 작업 폴더로 자동으로 정해지고, 바꾸고 싶을 때만 [세션 고르기]로 바꾼다.
  */
 export function SessionList({
   sessions,
@@ -160,8 +160,8 @@ function SwitchButton({ session, onClick }: { session: ProjectSession; onClick: 
 
 /**
  * [세션 고르기] 창: 세션 목록(모니터링 탭의 세션) 전부를 그룹별로 체크한다.
- * 이 프로젝트에서 처음 고를 때만 같은 저장소 세션을 미리 체크해 둔다 —
- * 매번 체크하면 일부러 다 뺀 세션이 다시 들어간다 (한 번 저장했는지는 이 브라우저가 기억한다).
+ * 지금 소속(작업 폴더로 자동 + 사람이 바꾼 것)이 체크된 채로 열린다. 서버는 자동과 다르게 고른
+ * 것만 적어 둔다.
  */
 export function SessionPicker({
   projectKey,
@@ -181,8 +181,7 @@ export function SessionPicker({
     fetchSessionChoices(projectKey)
       .then((list) => {
         setChoices(list)
-        const first = !pickedBefore(projectKey) && !list.some((c) => c.member)
-        setChecked(new Set(list.filter((c) => c.member || (first && c.suggested && !c.elsewhere)).map((c) => c.id)))
+        setChecked(new Set(list.filter((c) => c.member).map((c) => c.id)))
       })
       .catch((e) => setMessage(reasonOf(e)))
   }, [projectKey])
@@ -198,12 +197,11 @@ export function SessionPicker({
     const result = await saveProjectSessions(projectKey, [...checked]).catch((e) => ({ error: reasonOf(e) }))
     setSaving(false)
     if (result.error) {
-      // 창을 연 사이 세션 번호가 바뀌었으면(/clear) 목록을 다시 읽어 보여 준다
+      // 창을 연 사이 세션이 삭제됐으면 목록을 다시 읽어 보여 준다
       setMessage(result.error)
       load()
       return
     }
-    rememberPicked(projectKey)
     onSaved()
     onClose()
   }
@@ -230,7 +228,7 @@ export function SessionPicker({
       {choices == null && !message && <p className="text-sm text-gray-500">불러오는 중…</p>}
       {[...groups.entries()].map(([group, list]) => (
         <section key={group} className="mb-3">
-          <div className="py-1 text-xs tracking-wide text-gray-400">{group || '(그룹없음)'}</div>
+          <div className="py-1 text-xs tracking-wide text-gray-400">{group || '분류 안 됨'}</div>
           {list.map((c) => (
             <label key={c.id} className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-[5px] text-sm hover:bg-hover">
               <input
@@ -247,7 +245,7 @@ export function SessionPicker({
                 }
               />
               <span className="flex-1 text-gray-100">{c.name}</span>
-              {c.suggested && <span className="text-[11px] text-accent">같은 저장소</span>}
+              {c.auto && <span className="text-[11px] text-accent">이 저장소에서 일함</span>}
               {c.elsewhere && <span className="text-[11px] text-gray-500">다른 프로젝트 소속</span>}
             </label>
           ))}

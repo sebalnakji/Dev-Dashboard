@@ -37,13 +37,6 @@ export function openFolders(key: string): Set<string> {
 export const rememberFolders = (key: string, open: Set<string>) => write(`openFolders:${key}`, [...open])
 
 /**
- * [세션 고르기]를 한 번이라도 저장한 프로젝트. 같은 저장소 세션을 미리 체크하는 것은 처음 고를
- * 때뿐이다 — 일부러 다 뺀 뒤 다시 열었을 때 또 체크되면 안 된다.
- */
-export const pickedBefore = (key: string) => read(`picked:${key}`) === true
-export const rememberPicked = (key: string) => write(`picked:${key}`, true)
-
-/**
  * 세션마다 마지막으로 대화를 본 시각 (ISO). 이 뒤에 끝난 답을 '새 답'으로 센다.
  * 처음 보는 세션은 기억이 없으므로 null — 화면이 그때의 시각을 기억해 지난 답을 새 답으로 세지 않는다.
  */

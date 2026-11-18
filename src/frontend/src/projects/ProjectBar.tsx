@@ -275,7 +275,7 @@ function RemoveDialog({
       <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-gray-400">
         <li>목록에서 빠지고, 이 프로젝트에서 일하는 세션의 작업 기록이 멈춥니다.</li>
         <li>지금까지의 작업 · 변경 기록은 지우지 않습니다. 같은 폴더를 다시 추가하면 그대로 이어집니다.</li>
-        <li>[세션 고르기]로 넣어 둔 세션은 이 프로젝트에서 빠집니다.</li>
+        <li>[세션 고르기]로 이 프로젝트에 넣어 둔 세션은 작업 폴더 기준 소속으로 돌아갑니다.</li>
       </ul>
       <p className="mt-2 truncate text-xs text-gray-500" title={project.root}>
         {project.root}

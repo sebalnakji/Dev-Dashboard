@@ -6,6 +6,7 @@ import type {
   ContainerLogs,
   ContainersResponse,
   FileContent,
+  FolderChoice,
   FileDiff,
   FileHistoryRow,
   FilesResponse,
@@ -17,7 +18,7 @@ import type {
   SamplesResponse,
   ServerSummary,
   SessionChoice,
-  SessionRow,
+  SessionsView,
   TaskDetail,
   TaskFileDiff,
   TaskRow,
@@ -47,37 +48,54 @@ export function fetchContainers(serverId: string): Promise<ContainersResponse> {
   return getJson<ContainersResponse>(`/api/servers/${encodeURIComponent(serverId)}/containers`)
 }
 
-export function fetchSessions(): Promise<SessionRow[]> {
-  return getJson<SessionRow[]>('/api/claude/sessions')
+export function fetchSessions(): Promise<SessionsView> {
+  return getJson<SessionsView>('/api/claude/sessions')
 }
 
 export function fetchPcMemory(): Promise<PcMemory> {
   return getJson<PcMemory>('/api/pc/memory')
 }
 
-export type SessionAction = 'start' | 'stop' | 'foreground'
+export type SessionAction = 'start' | 'stop' | 'foreground' | 'delete'
 
 /**
- * 세션 버튼 동작. 거절(409)도 본문에 이유나 확인 요청이 담겨 오므로 예외로 던지지 않고
+ * 세션 칸의 동작. 거절(409)도 본문에 이유나 확인 요청이 담겨 오므로 예외로 던지지 않고
  * 그대로 돌려준다. 화면이 그 말을 안내 상자에 띄우거나 물어본다.
  */
-export async function postSessionAction(
-  id: string,
-  action: SessionAction,
-  force = false,
-): Promise<ActionResult> {
-  const response = await fetch(`/api/claude/sessions/${encodeURIComponent(id)}/${action}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ force }),
+async function sendJson(method: string, path: string, body?: unknown): Promise<ActionResult> {
+  const response = await fetch(path, {
+    method,
+    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
   })
   return (await response.json()) as ActionResult
 }
 
-export async function postStartAll(): Promise<ActionResult> {
-  const response = await fetch('/api/claude/start-all', { method: 'POST' })
-  return (await response.json()) as ActionResult
-}
+const sessionPath = (id: string) => `/api/claude/sessions/${encodeURIComponent(id)}`
+const groupPath = (name: string) => `/api/claude/groups/${encodeURIComponent(name)}`
+
+export const postSessionAction = (id: string, action: SessionAction, force = false) =>
+  sendJson('POST', `${sessionPath(id)}/${action}`, { force })
+
+export const postStartAll = () => sendJson('POST', '/api/claude/start-all')
+
+export const postRestore = (id: string) => sendJson('POST', `/api/claude/deleted/${encodeURIComponent(id)}/restore`)
+
+export const createSession = (body: { cwd: string; name: string; group: string | null; force?: boolean }) =>
+  sendJson('POST', '/api/claude/sessions', body)
+
+export const fetchFolders = () => getJson<FolderChoice[]>('/api/claude/folders')
+
+export const addGroup = (name: string) => sendJson('POST', '/api/claude/groups', { name })
+
+export const patchGroup = (name: string, change: { name?: string; collapsed?: boolean }) =>
+  sendJson('PATCH', groupPath(name), change)
+
+export const deleteGroup = (name: string) => sendJson('DELETE', groupPath(name))
+
+/** 세션을 group(null 이면 분류 안 됨)으로 옮기고, 그 그룹의 순서를 order 대로 */
+export const placeSession = (id: string, group: string | null, order: string[]) =>
+  sendJson('PUT', `${sessionPath(id)}/place`, { group, order })
 
 export function fetchContainerLogs(
   serverId: string,
