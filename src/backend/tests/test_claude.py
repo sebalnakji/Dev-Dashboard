@@ -178,6 +178,12 @@ def test_이어_열기는_전체_번호에_resume_만_붙인다(ran):
     assert ran[0]["args"] == ["--bg", "--resume", FIRST_A] and ran[0]["cwd"] == "C:/proj"
 
 
+def test_복원은_지우며_사라진_원격_제어를_다시_붙인다(ran):
+    """지운 뒤라 원본이 없어 옵션을 붙여도 복사본이 생기지 않는다."""
+    agents.restore("C:/proj", AFTER_CLEAR_A)
+    assert ran[0]["args"] == ["--bg", "--resume", AFTER_CLEAR_A, "--remote-control"]
+
+
 def test_신뢰_폴더는_승인한_것만_있는_폴더만(tmp_path, monkeypatch):
     ok, no = tmp_path / "ok", tmp_path / "no"
     ok.mkdir()
@@ -406,7 +412,7 @@ def test_복원하면_마지막_대화로_띄우고_그룹을_되돌린다(svc, 
         svc.calls.append(("resume", cwd, conv))
         svc.every.append(bg("ffffffff", conv, "alpha", cwd, pid=7))  # 새 목록 번호로 살아난다
 
-    monkeypatch.setattr(agents, "resume", resumed)
+    monkeypatch.setattr(agents, "restore", resumed)
     assert svc.restore(ID_A) is None
     run_background(svc)
     assert ("resume", svc.cwd, AFTER_CLEAR_A) in svc.calls

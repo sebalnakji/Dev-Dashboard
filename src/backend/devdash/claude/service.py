@@ -372,7 +372,7 @@ class SessionService:
     def _restore(self, record: dict) -> None:
         name = record.get("name") or record["id"][:8]
         before = {r.get("id") for r in agents.all_sessions()}
-        err = agents.resume(record["cwd"], record["sessionId"])
+        err = agents.restore(record["cwd"], record["sessionId"])
         row = None
         if not err:
             row = agents.wait_for(

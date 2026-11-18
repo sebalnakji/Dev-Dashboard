@@ -143,6 +143,15 @@ def resume(cwd: str, conversation: str) -> str | None:
     return explain(*_run(["--bg", "--resume", conversation], cwd=cwd))
 
 
+def restore(cwd: str, conversation: str) -> str | None:
+    """삭제(claude rm)한 세션을 그 대화로 다시 띄운다. 실패하면 이유를 돌려준다.
+
+    지우면 관리자 기록과 함께 실행 옵션도 사라져, 그냥 이으면 원격 제어 없이 깨어나 앱 사이드바에서
+    빠진다. 그래서 원격 제어를 다시 붙인다. 원본이 이미 없어 옵션을 붙여도 복사본이 생기지 않고,
+    같은 목록 번호 · 이름(대화 기록에서)으로 돌아온다 (2.1.327 시험 세션으로 확인)."""
+    return explain(*_run(["--bg", "--resume", conversation, "--remote-control"], cwd=cwd))
+
+
 def create(cwd: str, name: str) -> str | None:
     """새 백그라운드 세션을 만든다. 질문은 보내지 않는다. 실패하면 이유를 돌려준다.
 
