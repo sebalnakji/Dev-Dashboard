@@ -303,16 +303,6 @@ def test_꺼진_세션의_대화는_관리자가_기억하는_마지막_번호�
     assert names(svc)["alpha"]["conversation"] == AFTER_CLEAR_A
 
 
-def test_모두_연결은_그룹에_든_꺼진_세션만_화면_순서대로(svc):
-    svc.edit(lambda d: registry.add_group(d, "G"))
-    svc.place(ID_B, "G", [ID_B, ID_A])
-    svc.place(ID_A, "G", [ID_B, ID_A])
-    svc.live.append(bg(ID_B, FIRST_B, "beta", svc.cwd, pid=9))
-    assert svc.start_all() is None
-    targets = next(c for c in svc.calls if c[0] == "bg")[2][0]
-    assert [t["id"] for t in targets] == [ID_A]  # beta 는 켜짐, C 는 분류 안 됨
-
-
 def test_답을_만드는_중이면_해제를_거절한다(svc):
     svc.live.append(bg(ID_A, FIRST_A, "alpha", svc.cwd, pid=9, state="working", status="busy"))
     assert "작업 중" in svc.stop(svc.entry(ID_A))

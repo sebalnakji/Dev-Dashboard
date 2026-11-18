@@ -1,4 +1,4 @@
-"""세션 칸의 동작 — 목록 · 연결 · 해제 · 포그라운드 · 모두 연결 · 삭제 · 복원 · 새로 만들기 · 그룹.
+"""세션 칸의 동작 — 목록 · 연결 · 해제 · 포그라운드 · 삭제 · 복원 · 새로 만들기 · 그룹.
 
 세션은 등록하지 않는다. `claude agents --all` 에 있는 백그라운드 세션이 모두 보이고, 사람은
 그룹 · 순서만 정한다 (registry). 필요 없는 세션은 [삭제] — Claude 목록에서도 지운다(claude rm).
@@ -33,10 +33,6 @@ FAIL_SHOW = 60
 
 LIST_CACHE_SECONDS = 2
 """claude agents 는 1~2초 걸린다. 화면이 여러 번 물어도 이 안이면 한 번만 부른다."""
-
-QUEUED = float("inf")
-"""모두 연결에서 차례를 기다리는 세션의 표시 시각. 기다리는 동안 OP_TIMEOUT 에 걸리지 않고,
-차례가 오면 실제 시각으로 바뀐다."""
 
 Result = str | dict | None
 
@@ -221,22 +217,20 @@ class SessionService:
             agents.wait_roster_clear(c) for c in {row.get("sessionId"), row.get("resumeId")} if c
         )
 
-    def _resume_in_order(self, rows: list[dict]) -> None:
-        for row in rows:
-            sid = row["id"]
-            self._ops[sid] = ("start", time.time())
-            self._failures.pop(sid, None)
-            # 끝내 명단에서 안 빠지면 띄우지 않는다 — 띄우면 복사본이 생긴다
-            if not self._wait_released(row):
-                err = "아직 정리 중이라 연결하지 못했습니다. 잠시 뒤 다시 눌러 주세요"
-            else:
-                try:
-                    err = agents.resume(row["cwd"], row["resumeId"]) or agents.confirm_started(sid)
-                except Exception as ex:
-                    err = f"연결 중 오류: {ex!r}"
-            if err:
-                # '연결 중'에 묶어 두지 않고 바로 다시 누를 수 있게 풀고, 이유를 화면에 넘긴다
-                self._fail(sid, f"{display_name(row)} 연결 실패 — {err}")
+    def _resume(self, row: dict) -> None:
+        sid = row["id"]
+        self._failures.pop(sid, None)
+        # 끝내 명단에서 안 빠지면 띄우지 않는다 — 띄우면 복사본이 생긴다
+        if not self._wait_released(row):
+            err = "아직 정리 중이라 연결하지 못했습니다. 잠시 뒤 다시 눌러 주세요"
+        else:
+            try:
+                err = agents.resume(row["cwd"], row["resumeId"]) or agents.confirm_started(sid)
+            except Exception as ex:
+                err = f"연결 중 오류: {ex!r}"
+        if err:
+            # '연결 중'에 묶어 두지 않고 바로 다시 누를 수 있게 풀고, 이유를 화면에 넘긴다
+            self._fail(sid, f"{display_name(row)} 연결 실패 — {err}")
 
     def _can_resume(self, row: dict) -> str | None:
         if not row.get("resumeId"):
@@ -253,28 +247,7 @@ class SessionService:
         if err := self._can_resume(row):
             return err
         self._ops[row["id"]] = ("start", time.time())
-        self._background(self._resume_in_order, [row])
-        self._drop_cache()
-        return None
-
-    def start_all(self) -> Result:
-        """그룹에 든 꺼진 세션을 화면 순서대로 하나씩 띄운다. 재부팅 뒤에 쓴다.
-        "분류 안 됨"은 띄우지 않는다 — 아직 정리하지 않은 옛 세션이 한꺼번에 켜지지 않게."""
-        sessions, _ = self.collect()
-        targets = [
-            sessions[r["id"]]
-            for r in self.rows()
-            if r["group"]
-            and not self._in_progress(r["id"])
-            and not sessions[r["id"]].get("pid")
-            and self._can_resume(sessions[r["id"]]) is None
-        ]
-        if not targets:
-            return "연결할 꺼진 세션이 없습니다"
-        # 먼저 전부 '연결 중'으로 표시해 둔다 — 차례를 기다리는 세션을 또 눌러도 거부되게
-        for row in targets:
-            self._ops[row["id"]] = ("start", QUEUED)
-        self._background(self._resume_in_order, targets)
+        self._background(self._resume, row)
         self._drop_cache()
         return None
 

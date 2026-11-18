@@ -8,7 +8,6 @@ import {
   placeSession,
   postRestore,
   postSessionAction,
-  postStartAll,
   type SessionAction,
 } from '../api/client'
 import { Column, ColumnTitle } from '../components/Column'
@@ -61,7 +60,6 @@ export function SessionPanel() {
   const [notice, setNotice] = useState<string | null>(null)
   const [pending, setPending] = useState<Record<string, SessionState>>({})
   const [closed, setClosed] = useState(loadClosed)
-  const [startingAll, setStartingAll] = useState(false)
   const [menu, setMenu] = useState<string | null>(null)
   const [dialog, setDialog] = useState<Dialog | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
@@ -134,12 +132,6 @@ export function SessionPanel() {
       setPending((p) => ({ ...p, [row.id]: shown }))
     }
     return run((force) => postSessionAction(row.id, action, force))
-  }
-
-  async function startAll() {
-    setStartingAll(true)
-    await run(() => postStartAll())
-    setStartingAll(false)
   }
 
   function toggleLocal(key: string) {
@@ -250,28 +242,15 @@ export function SessionPanel() {
         </>
       }
       side={
-        <span className="flex gap-1.5">
-          <button
-            type="button"
-            className={BUTTON}
-            title="새 백그라운드 세션을 만듭니다"
-            disabled={!view}
-            onClick={() => setDialog({ kind: 'new', group: null })}
-          >
-            + 세션
-          </button>
-          {/* 꺼진 세션이 없을 때도 누를 수 있다 — 누르면 "연결할 꺼진 세션이 없습니다" 가 뜬다.
-              비활성으로 두니 고장처럼 보였다 */}
-          <button
-            type="button"
-            className={BUTTON}
-            title="그룹에 든 꺼진 세션을 차례로 연결합니다 (분류 안 됨은 빼고)"
-            disabled={startingAll}
-            onClick={startAll}
-          >
-            모두 연결
-          </button>
-        </span>
+        <button
+          type="button"
+          className={BUTTON}
+          title="새 백그라운드 세션을 만듭니다"
+          disabled={!view}
+          onClick={() => setDialog({ kind: 'new', group: null })}
+        >
+          + 세션
+        </button>
       }
     >
       {offline && <p className="mb-3.5 rounded-md bg-[#3a2621] px-2.5 py-2 text-xs text-[#f0b8a4]">{OFFLINE}</p>}

@@ -77,8 +77,6 @@ const groupPath = (name: string) => `/api/claude/groups/${encodeURIComponent(nam
 export const postSessionAction = (id: string, action: SessionAction, force = false) =>
   sendJson('POST', `${sessionPath(id)}/${action}`, { force })
 
-export const postStartAll = () => sendJson('POST', '/api/claude/start-all')
-
 export const postRestore = (id: string) => sendJson('POST', `/api/claude/deleted/${encodeURIComponent(id)}/restore`)
 
 export const createSession = (body: { cwd: string; name: string; group: string | null; force?: boolean }) =>

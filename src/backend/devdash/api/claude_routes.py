@@ -108,11 +108,6 @@ def restore_session(request: Request, session_id: str) -> JSONResponse:
     return _answer(_service(request).restore(session_id))
 
 
-@router.post("/claude/start-all")
-def start_all(request: Request) -> JSONResponse:
-    return _answer(_service(request).start_all())
-
-
 # --- 새 세션 ---
 
 
