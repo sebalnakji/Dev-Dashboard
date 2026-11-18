@@ -162,10 +162,12 @@ def ran(monkeypatch):
     return calls
 
 
-def test_새_세션은_그_폴더에서_이름만_붙여_백그라운드로_띄운다(ran):
+def test_새_세션은_그_폴더에서_이름과_원격_제어를_붙여_백그라운드로_띄운다(ran):
+    """원격 제어 없이 만든 세션은 Claude 앱 사이드바에 보이지 않는다."""
     assert agents.create("C:/proj", "새 세션") is None
     call = ran[0]
-    assert call["args"] == ["--bg", "--name", "새 세션"] and call["cwd"] == "C:/proj"
+    assert call["args"] == ["--bg", "--name", "새 세션", "--remote-control"]
+    assert call["cwd"] == "C:/proj"
     # 표시를 물려받으면 새 claude 가 하위 세션으로 여겨 기록을 남기지 않는다
     assert "CLAUDE_CODE_CHILD_SESSION" not in call["env"]
 

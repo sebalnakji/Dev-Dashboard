@@ -144,8 +144,12 @@ def resume(cwd: str, conversation: str) -> str | None:
 
 
 def create(cwd: str, name: str) -> str | None:
-    """새 백그라운드 세션을 만든다. 질문은 보내지 않는다. 실패하면 이유를 돌려준다."""
-    return explain(*_run(["--bg", "--name", name], cwd=cwd))
+    """새 백그라운드 세션을 만든다. 질문은 보내지 않는다. 실패하면 이유를 돌려준다.
+
+    원격 제어(--remote-control)를 붙인다 — 붙이지 않으면 Claude 앱 사이드바에 보이지 않는다
+    (2.1.327 에서 확인: 앱에 보이는 세션은 모두 원격 연결이 있다). 실행 옵션으로 저장되어
+    해제 뒤 다시 연결해도 이어진다."""
+    return explain(*_run(["--bg", "--name", name, "--remote-control"], cwd=cwd))
 
 
 def remove(session_id: str) -> str | None:
