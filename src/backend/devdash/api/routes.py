@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -43,6 +44,13 @@ def _server_config(config, server_id: str):
         # str(KeyError("메시지")) 는 따옴표를 덧씌운다. 원문만 꺼내 쓴다
         detail = exc.args[0] if exc.args else "서버를 찾을 수 없습니다"
         raise HTTPException(status_code=404, detail=detail) from exc
+
+
+@router.get("/health")
+async def health() -> dict:
+    """이 포트에서 도는 것이 devdash 인지, 어느 프로세스인지 밝힌다.
+    stop 이 남의 프로그램이나 다시 쓰인 PID 를 끄지 않게 확인하는 데 쓴다 (devdash.launch)."""
+    return {"app": "devdash", "pid": os.getpid()}
 
 
 def build_summaries(config, scheduler, store, with_spark: bool) -> list[dict]:

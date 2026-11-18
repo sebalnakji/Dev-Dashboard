@@ -19,13 +19,14 @@ from devdash.api.project_routes import router as project_router
 from devdash.api.routes import router
 from devdash.claude.service import SessionService
 from devdash.collect.scheduler import Scheduler
-from devdash.config import DEFAULT_CONFIG_PATH, load_config
+from devdash.config import load_config
+from devdash.home import REPO
 from devdash.store.memory import MemoryStore
 
 logger = logging.getLogger(__name__)
 
 
-def create_app(config_path: Path = DEFAULT_CONFIG_PATH) -> FastAPI:
+def create_app(config_path: Path | None = None) -> FastAPI:
     config = load_config(config_path)
     store = MemoryStore()
     scheduler = Scheduler(config, store)
@@ -55,7 +56,7 @@ def create_app(config_path: Path = DEFAULT_CONFIG_PATH) -> FastAPI:
     # 이유: Vite 개발 서버(5173)가 세션 종료·좀비 프로세스로 자꾸 죽어 화면이 끊겼다.
     # 이제 프로세스 하나(백엔드)가 API 와 화면을 같은 주소(8770)에서 함께 준다.
     # dist 가 없으면(빌드 전) 건너뛴다 — 개발 땐 vite dev 서버를 쓴다.
-    dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+    dist = REPO / "src" / "frontend" / "dist"
     if dist.is_dir():
         app.mount("/", StaticFiles(directory=dist, html=True), name="ui")
     else:

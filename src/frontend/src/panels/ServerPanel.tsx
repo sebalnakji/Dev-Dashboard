@@ -37,7 +37,7 @@ export function ServerPanel({
       )}
       {servers == null && !loadError && <p className="px-1.5 text-sm text-gray-500">불러오는 중…</p>}
       {servers?.length === 0 && (
-        <p className="px-1.5 text-sm text-gray-500">config/servers.yaml 에 서버가 없습니다.</p>
+        <p className="px-1.5 text-sm text-gray-500">~/.devdash/servers.yaml 에 서버가 없습니다.</p>
       )}
       <div className="space-y-4">
         {servers?.map((server) => <ServerCard key={server.id} server={server} now={now} />)}

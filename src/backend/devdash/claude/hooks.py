@@ -20,16 +20,18 @@ import json
 import time
 from pathlib import Path
 
-from devdash.claude.registry import DEFAULT_SESSIONS_PATH, editing, norm
-from devdash.config import ROOT
+from devdash.claude.registry import editing, norm
+from devdash.home import log_dir
 
-PENDING = ROOT / "logs" / "clear-pending.json"
-HOOK_LOG = ROOT / "logs" / "claude-hooks.log"
+PENDING = "clear-pending.json"
+HOOK_LOG = "claude-hooks.log"
+"""둘 다 ~/.devdash/logs 아래 (devdash.home)."""
 PENDING_TTL = 60
 """초. 옛 대화 끝 → 새 대화 시작은 한 프로세스 안에서 곧바로 이어진다."""
 
 
-def log(msg: str, path: Path = HOOK_LOG) -> None:
+def log(msg: str, path: Path | None = None) -> None:
+    path = path or log_dir() / HOOK_LOG
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
         f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')}  {msg}\n")
@@ -44,9 +46,10 @@ def _write_pending(pending: dict, path: Path) -> None:
     path.write_text(json.dumps(pending, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def on_end(data: dict, pending_path: Path = PENDING, log_path: Path = HOOK_LOG) -> None:
+def on_end(data: dict, pending_path: Path | None = None, log_path: Path | None = None) -> None:
     if data.get("reason") != "clear":
         return
+    pending_path = pending_path or log_dir() / PENDING
     pending = _read_pending(pending_path)
     pending[norm(data.get("cwd", ""))] = {"old": data["session_id"], "at": time.time()}
     _write_pending(pending, pending_path)
@@ -55,10 +58,11 @@ def on_end(data: dict, pending_path: Path = PENDING, log_path: Path = HOOK_LOG) 
 
 def on_start(
     data: dict,
-    pending_path: Path = PENDING,
-    sessions_path: Path = DEFAULT_SESSIONS_PATH,
-    log_path: Path = HOOK_LOG,
+    pending_path: Path | None = None,
+    sessions_path: Path | None = None,
+    log_path: Path | None = None,
 ) -> None:
+    pending_path = pending_path or log_dir() / PENDING
     if data.get("source") != "clear" or not pending_path.exists():
         return
     pending = _read_pending(pending_path)

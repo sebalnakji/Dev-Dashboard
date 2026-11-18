@@ -1,4 +1,4 @@
-"""관리할 Claude 세션 목록 (config/sessions.json).
+"""관리할 Claude 세션 목록 (~/.devdash/sessions.json).
 
 세션마다 대화 번호(id) · 이름 · 그룹 · 프로젝트 폴더를 둔다. 프로젝트 탭에 넣은 세션에는
 project_key(devdash 에 등록된 프로젝트의 키)도 둔다 — 사람이 [세션 고르기]로 정한다 (ADR 0007).
@@ -17,9 +17,7 @@ import time
 from collections.abc import Iterator
 from pathlib import Path
 
-from devdash.config import ROOT
-
-DEFAULT_SESSIONS_PATH = ROOT / "config" / "sessions.json"
+from devdash.home import sessions_path
 
 LOCK_WAIT = 5.0
 """초. 다른 쪽(/clear 훅 · 화면 · 명령)이 고치는 중이면 이만큼 기다린다."""
@@ -30,16 +28,18 @@ def norm(path: str) -> str:
     return (path or "").replace("\\", "/").rstrip("/")
 
 
-def load(path: Path = DEFAULT_SESSIONS_PATH) -> list[dict]:
+def load(path: Path | None = None) -> list[dict]:
+    path = path or sessions_path()
     if not path.exists():
         return []
     return json.loads(path.read_text(encoding="utf-8")).get("sessions", [])
 
 
-def save(entries: list[dict], path: Path = DEFAULT_SESSIONS_PATH) -> None:
+def save(entries: list[dict], path: Path | None = None) -> None:
     """통째로 바꿔 끼운다 — 쓰는 도중에 읽는 쪽(화면 폴링)이 반쯤 쓴 파일을 보지 않게.
     읽는 쪽이 파일을 잡고 있으면 바꿔 끼우기가 잠깐 실패하므로 몇 번 다시 한다.
     고칠 때는 이것을 직접 부르지 말고 editing() 을 쓴다."""
+    path = path or sessions_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     tmp.write_text(
@@ -59,13 +59,14 @@ def save(entries: list[dict], path: Path = DEFAULT_SESSIONS_PATH) -> None:
 
 
 @contextlib.contextmanager
-def editing(path: Path = DEFAULT_SESSIONS_PATH) -> Iterator[list[dict]]:
+def editing(path: Path | None = None) -> Iterator[list[dict]]:
     """목록을 고치는 길: 잠그고 읽어 고친 뒤 저장한다. 블록 안에서 받은 목록을 고친다.
 
     /clear 훅 · 화면의 [세션 고르기] · claude add/remove 가 동시에 고치면 한쪽 갱신이
     사라졌다 (6단계 Fable 재현: /clear 로 바뀐 번호가 옛 번호로 되돌아감).
     블록에서 예외가 나면 저장하지 않는다.
     """
+    path = path or sessions_path()
     lock = path.with_name(path.name + ".lock")
     path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(lock, os.O_RDWR | os.O_CREAT)

@@ -1,4 +1,5 @@
-# 서버 접속 설정 예시. 이 파일을 servers.yaml 로 복사해서 쓴다.
+# 서버 접속 설정 예시. 실제 설정은 ~/.devdash/servers.yaml 에 쓴다 (setup 이 빈 파일을 만들어 둔다).
+# 필요한 서버만 이 예시를 보고 옮겨 적는다.
 #
 # 비밀번호나 키 passphrase 는 이 파일에 적지 않는다.
 # 필요하면 secret_from_keyring 을 켜고 OS 자격증명 저장소에 넣는다:

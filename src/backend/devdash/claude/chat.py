@@ -19,7 +19,9 @@ import threading
 from collections import Counter
 from pathlib import Path
 
-PROJECTS = Path.home() / ".claude" / "projects"
+from devdash.home import claude_dir
+
+PROJECTS = claude_dir() / "projects"
 
 CHUNK = 1024 * 1024
 """끝에서부터 한 번에 읽는 크기 (바이트)."""

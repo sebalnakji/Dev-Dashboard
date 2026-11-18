@@ -14,7 +14,6 @@ import json
 import os
 import re
 import subprocess
-import sys
 import threading
 import time
 import uuid
@@ -23,13 +22,13 @@ from datetime import datetime
 from devdash import commit_summary as commit_summary_ai
 from devdash import gitdiff
 from devdash.claude import chat
-from devdash.config import ROOT
+from devdash.home import PLUGIN_SCRIPTS  # noqa: F401 — 플러그인 스크립트를 import 경로에 올린다
 from devdash.local import run_bounded
 
-PLUGIN_SCRIPTS = ROOT / "plugins" / "devdash" / "scripts"
-sys.path.insert(0, str(PLUGIN_SCRIPTS))
-import devdash_store as store  # noqa: E402
-import devdash_tasks as tasks  # noqa: E402
+# isort: split
+# 위의 devdash.home 이 플러그인 스크립트 폴더를 import 경로에 올린 뒤에야 불러올 수 있다
+import devdash_store as store
+import devdash_tasks as tasks
 
 COMMITS = 50
 """오른쪽 칸에 보이는 최근 커밋 수."""

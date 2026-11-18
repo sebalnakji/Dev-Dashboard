@@ -16,7 +16,8 @@ import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-DEFAULT_LOG_DIR = Path("logs")
+from devdash.home import log_dir as default_log_dir
+
 LOG_FILENAME = "devdash.log"
 MAX_BYTES = 5 * 1024 * 1024
 BACKUP_COUNT = 5
@@ -51,7 +52,7 @@ def setup_logging(verbose: bool = False, log_dir: Path | None = None) -> None:
     for name in ("asyncssh", "asyncio"):
         logging.getLogger(name).setLevel(library_level)
 
-    directory = DEFAULT_LOG_DIR if log_dir is None else log_dir
+    directory = default_log_dir() if log_dir is None else log_dir
     try:
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / LOG_FILENAME

@@ -27,7 +27,7 @@ export function agoIso(iso: string | null | undefined, now: number): string {
   return `${Math.floor(hours / 24)}일 전`
 }
 
-export const OFFLINE = '대시보드 서버에 연결할 수 없습니다. start.bat 으로 다시 띄워 주세요.'
+export const OFFLINE = '대시보드 서버에 연결할 수 없습니다. start(.bat · .sh) 로 다시 띄워 주세요.'
 
 /** 409 · 404 의 본문 {"error": 이유} 에서 이유만 꺼낸다. 서버에 닿지 않으면(TypeError) 그렇다고. */
 export function reasonOf(error: unknown): string {

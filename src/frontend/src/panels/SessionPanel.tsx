@@ -146,7 +146,7 @@ export function SessionPanel() {
     >
       {offline && (
         <p className="mb-3.5 rounded-md bg-[#3a2621] px-2.5 py-2 text-xs text-[#f0b8a4]">
-          대시보드 서버에 연결할 수 없습니다. start.bat 으로 다시 띄워 주세요.
+          대시보드 서버에 연결할 수 없습니다. start(.bat · .sh) 로 다시 띄워 주세요.
         </p>
       )}
       {notice && (
@@ -157,7 +157,7 @@ export function SessionPanel() {
       {rows == null && !offline && <p className="px-1.5 text-sm text-gray-500">불러오는 중…</p>}
       {rows?.length === 0 && (
         <p className="px-1.5 text-sm text-gray-500">
-          config/sessions.json 에 세션이 없습니다. python -m devdash claude add 로 추가합니다.
+          ~/.devdash/sessions.json 에 세션이 없습니다. devdash claude add 로 추가합니다.
         </p>
       )}
 

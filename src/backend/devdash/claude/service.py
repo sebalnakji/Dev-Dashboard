@@ -17,7 +17,8 @@ import time
 from pathlib import Path
 
 from devdash.claude import agents, chat
-from devdash.claude.registry import DEFAULT_SESSIONS_PATH, by_group, load
+from devdash.claude.registry import by_group, load
+from devdash.home import sessions_path
 from devdash.local import kill_tree, open_terminal
 
 OP_TIMEOUT = 40
@@ -37,8 +38,8 @@ Result = str | dict | None
 
 
 class SessionService:
-    def __init__(self, path: Path = DEFAULT_SESSIONS_PATH):
-        self.path = path
+    def __init__(self, path: Path | None = None):
+        self.path = path or sessions_path()
         self._ops: dict[str, tuple[str, float]] = {}  # 번호 → ("start"|"stop", 시각)
         self._failures: dict[str, tuple[str, float]] = {}  # 번호 → (이유, 시각)
         self._live: tuple[float, list] = (0.0, [])

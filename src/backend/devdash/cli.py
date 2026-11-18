@@ -184,7 +184,7 @@ async def _check(
     return sample, snapshot, elapsed_ms
 
 
-def cmd_list(config_path: Path) -> int:
+def cmd_list(config_path: Path | None) -> int:
     config = load_config(config_path)
     print(f"{pad('ID', 16)} {pad('이름', 18)} {pad('접속', 28)} {pad('제어', 10)} docker sudo")
     print("-" * 78)
@@ -245,7 +245,7 @@ async def _check_many(
     return list(zip(cfgs, results, strict=True))
 
 
-def cmd_check(config_path: Path, server_ids: list[str], interval: float) -> int:
+def cmd_check(config_path: Path | None, server_ids: list[str], interval: float) -> int:
     config = load_config(config_path)
     targets = [config.get(sid) for sid in server_ids] if server_ids else config.servers
     if not targets:

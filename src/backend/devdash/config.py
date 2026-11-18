@@ -11,6 +11,8 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
+from devdash.home import servers_path
+
 
 class PollConfig(BaseModel):
     """수집 주기(초).
@@ -58,7 +60,7 @@ class ServerConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
-    servers: list[ServerConfig]
+    servers: list[ServerConfig] = Field(default_factory=list)
 
     @field_validator("servers")
     @classmethod
@@ -78,17 +80,13 @@ class AppConfig(BaseModel):
         raise KeyError(f"'{server_id}' 서버를 찾을 수 없습니다. 설정된 서버: {known}")
 
 
-DEFAULT_CONFIG_PATH = Path("config/servers.yaml")
+def load_config(path: Path | str | None = None) -> AppConfig:
+    """설정을 읽는다. 기본 위치는 `~/.devdash/servers.yaml` (devdash.home).
 
-ROOT = Path(__file__).resolve().parents[3]
-"""저장소 루트. Claude 훅처럼 아무 폴더에서나 불리는 코드가 설정·로그를 찾을 때 쓴다."""
-
-
-def load_config(path: Path | str = DEFAULT_CONFIG_PATH) -> AppConfig:
-    path = Path(path)
+    파일이 없으면 서버 0대로 본다 — 서버 없이 세션 · 메모리 칸만 쓰는 사람도 있다.
+    """
+    path = servers_path() if path is None else Path(path)
     if not path.exists():
-        raise FileNotFoundError(
-            f"설정 파일이 없습니다: {path}\nconfig/servers.example.yaml 을 복사해서 만드세요."
-        )
+        return AppConfig()
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     return AppConfig.model_validate(data)

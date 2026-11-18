@@ -87,12 +87,35 @@ def test_백업은_처음_원본만_남긴다(home, tmp_path, monkeypatch):
     assert not (tmp_path / "settings.json.devdash-tmp").exists()
 
 
-def test_명령으로_불러도_로그_없이_결과_한_줄만_낸다(home, tmp_path, monkeypatch, capsys):
-    from devdash.__main__ import main
+def test_규칙을_빼면_비게_된_칸까지_치운다(home, tmp_path):
+    path = tmp_path / "settings.json"
+    before = {"model": "opus"}
+    path.write_text(json.dumps(before), encoding="utf-8")
+    plugin_perms.allow(path)
+    assert plugin_perms.has_rules(path)
+    assert plugin_perms.disallow(path) == "허용 규칙을 뺐습니다"
+    assert json.loads(path.read_text("utf-8")) == before
+    assert not plugin_perms.has_rules(path)
 
-    monkeypatch.setattr(plugin_perms, "SETTINGS", tmp_path / "settings.json")
-    monkeypatch.setattr(plugin_perms.allow, "__defaults__", (tmp_path / "settings.json",))
-    monkeypatch.chdir(tmp_path)
-    assert main(["plugin", "allow"]) == 0
-    assert "허용 규칙을 넣었습니다" in capsys.readouterr().out
-    assert not (tmp_path / "logs").exists()
+
+def test_규칙을_빼도_다른_허용_규칙은_남긴다(home, tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"permissions": {"allow": ["Bash(git *)"]}}), encoding="utf-8")
+    plugin_perms.allow(path)
+    plugin_perms.disallow(path)
+    assert json.loads(path.read_text("utf-8")) == {"permissions": {"allow": ["Bash(git *)"]}}
+
+
+def test_뺄_규칙이_없으면_파일을_건드리지_않는다(home, tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text('{"permissions": "이상한 모양"}', encoding="utf-8")
+    assert plugin_perms.disallow(path) == "허용 규칙이 없습니다"
+    assert path.read_text("utf-8") == '{"permissions": "이상한 모양"}'
+    assert plugin_perms.disallow(tmp_path / "없음.json") == "허용 규칙이 없습니다"
+
+
+def test_설정_위치는_CLAUDE_CONFIG_DIR_을_따른다(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cfg"))
+    assert plugin_perms.settings_path() == tmp_path / "cfg" / "settings.json"
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR")
+    assert plugin_perms.settings_path() == Path.home() / ".claude" / "settings.json"

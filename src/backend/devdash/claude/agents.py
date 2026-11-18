@@ -11,9 +11,10 @@ import os
 import shutil
 import subprocess
 import time
-from pathlib import Path
 
-CLAUDE_HOME = Path.home() / ".claude"
+from devdash.home import claude_dir
+
+CLAUDE_HOME = claude_dir()
 ROSTER = CLAUDE_HOME / "daemon" / "roster.json"
 JOBS = CLAUDE_HOME / "jobs"
 
