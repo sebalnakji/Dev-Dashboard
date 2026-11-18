@@ -351,7 +351,8 @@ class SessionService:
         self._drop_cache()
 
     def restore(self, deleted_id: str) -> Result:
-        """삭제한 세션을 마지막 대화로 다시 띄운다. 새 목록 번호로 살아나고 그룹을 되돌린다."""
+        """삭제한 세션을 마지막 대화로 다시 띄운다. 같은 목록 번호 · 이름으로 돌아오고(대화 번호에서
+        목록 번호가 나온다) 그룹을 되돌린다."""
         key = f"deleted:{deleted_id}"
         record = next(
             (d for d in registry.load(self.path)["deleted"] if d["id"] == deleted_id), None

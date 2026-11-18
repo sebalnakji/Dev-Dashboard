@@ -164,6 +164,9 @@ export function SessionPanel() {
   const groups = view?.groups ?? []
   const sessions = view?.sessions ?? []
   const rowsOf = (key: string) => sessions.filter((r) => (r.group ?? UNGROUPED) === key)
+  // 같은 이름이 여럿인 세션 (옛 판이 남는 일이 흔하다) — 줄에 목록 번호를 붙여 가른다
+  const nameCount = new Map<string, number>()
+  for (const r of sessions) nameCount.set(r.name, (nameCount.get(r.name) ?? 0) + 1)
 
   function move(id: string, key: string, index: number) {
     setMenu(null)
@@ -271,7 +274,7 @@ export function SessionPanel() {
         return (
           <section
             key={`g:${s.key}`}
-            className="group/sec mb-[18px]"
+            className="mb-[18px]"
             onDragOver={(e) => dragOverSection(e, s.key)}
             onDrop={drop}
           >
@@ -305,6 +308,7 @@ export function SessionPanel() {
                   state={stateOf(row)}
                   dropBefore={dropAt?.group === s.key && dropAt.index === rows.filter((r) => r.id !== dragId).indexOf(row)}
                   dragging={dragId === row.id}
+                  duplicate={(nameCount.get(row.name) ?? 0) > 1}
                   onDragStart={() => (setMenu(null), setDragId(row.id))}
                   onDragEnd={endDrag}
                   onDragOver={(e) => dragOverRow(e, s.key, rows.filter((r) => r.id !== dragId).indexOf(row))}
@@ -368,6 +372,7 @@ export function SessionPanel() {
                 <span className="w-[78px] shrink-0 text-right">
                   <TerminalBadge />
                 </span>
+                <span className="w-6 shrink-0" />
               </div>
             ))}
         </section>
@@ -433,7 +438,7 @@ function SectionHeader({
   count?: number
   note?: string
   onToggle: () => void
-  /** 오른쪽 버튼들 (그룹 머리에 마우스를 올리면 보인다) */
+  /** 오른쪽 버튼들 ([+] · ⋯). 늘 보인다 — 마우스를 올려야 보이면 있는 줄 모른다 */
   children?: ReactNode
 }) {
   return (
@@ -448,7 +453,7 @@ function SectionHeader({
         {count != null && <span className="text-gray-600">{count}</span>}
       </button>
       {note && <span className="text-[11px] text-gray-600">{note}</span>}
-      <span className="ml-auto flex items-center gap-1 opacity-0 transition-opacity group-hover/sec:opacity-100 focus-within:opacity-100">
+      <span className="ml-auto flex items-center gap-1">
         {children}
       </span>
     </div>
@@ -516,6 +521,7 @@ function SessionLine({
   state,
   dropBefore,
   dragging,
+  duplicate,
   onDragStart,
   onDragEnd,
   onDragOver,
@@ -527,6 +533,8 @@ function SessionLine({
   /** 이 줄 위에 놓을 자리 표시 */
   dropBefore: boolean
   dragging: boolean
+  /** 같은 이름의 세션이 또 있다 */
+  duplicate: boolean
   onDragStart: () => void
   onDragEnd: () => void
   onDragOver: (e: DragEvent) => void
@@ -552,7 +560,7 @@ function SessionLine({
         }}
         onDragEnd={onDragEnd}
         onDragOver={onDragOver}
-        className={`group/row flex cursor-grab items-center gap-2.5 rounded-md px-1.5 py-[7px] hover:bg-hover ${
+        className={`flex cursor-grab items-center gap-2.5 rounded-md px-1.5 py-[7px] hover:bg-hover ${
           dragging ? 'opacity-40' : ''
         }`}
       >
@@ -563,11 +571,10 @@ function SessionLine({
           }`}
         >
           {row.name}
+          {/* 같은 이름이 여럿이면 목록 번호로 가른다 (이름 없는 세션은 이미 번호가 붙어 있다) */}
+          {duplicate && row.named && <span className="ml-1.5 text-[11px] text-gray-600">{row.id.slice(0, 8)}</span>}
         </span>
         <ContextMeter tokens={row.tokens} compactions={row.compactions} />
-        <span className="w-6 shrink-0 opacity-0 transition-opacity group-hover/row:opacity-100 focus-within:opacity-100">
-          {state !== 'deleting' && menu}
-        </span>
         {/* 다른 상태엔 자리만 비워 둬서 아이콘 · 버튼 열이 흐트러지지 않게 한다 */}
         <span className="w-[30px] shrink-0 text-right">
           {(state === 'on' || state === 'off') && (
@@ -594,6 +601,7 @@ function SessionLine({
             </button>
           )}
         </span>
+        <span className="w-6 shrink-0">{state !== 'deleting' && menu}</span>
       </div>
     </>
   )
@@ -621,6 +629,7 @@ function DeletedLine({ item, onRestore }: { item: DeletedSession; onRestore: () 
           {item.restoring ? '복원 중…' : '복원'}
         </button>
       </span>
+      <span className="w-6 shrink-0" />
     </div>
   )
 }
