@@ -157,8 +157,8 @@ def test_버전_읽기(text, version):
 
 
 def test_대화_기록_폴더_이름_규칙():
-    assert compat.transcript_folder(r"C:\Users\msi\.devdash\compat") == (
-        "C--Users-msi--devdash-compat"
+    assert compat.transcript_folder(r"C:\Users\me\.devdash\compat") == (
+        "C--Users-me--devdash-compat"
     )
 
 
