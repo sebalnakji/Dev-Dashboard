@@ -235,6 +235,21 @@ def wait_roster_clear(conversation: str, limit: float = 20) -> bool:
     return True
 
 
+def job_state(session_id: str) -> str | None:
+    """관리자 기록(jobs/<목록 번호>/state.json)의 상태. 목록의 state 와 다를 수 있다.
+    못 읽으면 None.
+
+    대화가 한 번도 없는 세션은 이 값이 계속 'working' 이다. 그래서 프로세스를 끊으면 관리자가 하던
+    일이 끊긴 줄 알고 15초 안에 다시 띄운다 (2.1.327 시험 세션으로 확인,
+    원격 제어 세션은 첫 입력 /clear 로도 풀리지 않는다). 한 번 대화하면 풀린다."""
+    try:
+        state = json.loads((JOBS / session_id / "state.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    value = state.get("state") if isinstance(state, dict) else None
+    return value if isinstance(value, str) else None
+
+
 def bg_task_count(session_id: str) -> int | None:
     """세션이 띄워 둔 백그라운드 작업(서버 등) 수. 내부 파일이라 못 읽으면 None."""
     try:

@@ -38,6 +38,12 @@ Result = str | dict | None
 
 UNGROUPED = "분류 안 됨"
 
+NO_TALK_STOP = (
+    "아직 대화가 없는 세션은 꺼도 Claude 가 곧 다시 켭니다. "
+    "한 번 대화한 뒤 해제하거나, 필요 없으면 [삭제]하세요"
+)
+NO_TALK_START = "아직 대화가 없는 세션이라 Claude 가 곧 다시 켭니다. 잠시 뒤 켜진 것으로 보입니다"
+
 
 def display_name(row: dict) -> str:
     """Claude 쪽 이름. 비었으면 '폴더 이름 · 번호 앞 8자리' — 이름 없는 세션도 가려 볼 수 있게."""
@@ -239,11 +245,20 @@ class SessionService:
             return f"폴더가 없습니다: {row.get('cwd')}"
         return None
 
+    @staticmethod
+    def _respawns(row: dict) -> bool:
+        """대화가 한 번도 없는 세션인가 — 관리자 기록은 '일하는 중'인데 실제로는 쉬는 중.
+        끊으면 Claude 가 15초 안에 다시 띄우고, 꺼져 보이는 사이 이어 열면 복사본이 생긴다
+        (agents.job_state). 진짜로 일하는 중인 세션은 해제를 따로 거절한다."""
+        return agents.job_state(row["id"]) == "working" and row.get("state") != "working"
+
     def start(self, row: dict) -> Result:
         if self._in_progress(row["id"]):
             return "이미 처리 중입니다"
         if row.get("pid"):
             return "이미 켜져 있습니다"
+        if self._respawns(row):
+            return NO_TALK_START
         if err := self._can_resume(row):
             return err
         self._ops[row["id"]] = ("start", time.time())
@@ -273,6 +288,8 @@ class SessionService:
             return "이미 처리 중입니다"
         if not row.get("pid"):
             return "이미 꺼져 있습니다"
+        if self._respawns(row):
+            return NO_TALK_STOP
         if answer := self._check_stop(row, force, "해제"):
             return answer
         self._ops[row["id"]] = ("stop", time.time())
@@ -301,6 +318,8 @@ class SessionService:
         else:
             if err := self._can_resume(row):
                 return err
+            if self._respawns(row):
+                return NO_TALK_START
             if agents.in_roster(row["resumeId"]):
                 return "아직 정리 중입니다. 잠시 뒤 다시 눌러 주세요"
             args = ["claude", "--resume", row["resumeId"]]

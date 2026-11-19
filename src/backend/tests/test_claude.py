@@ -249,6 +249,7 @@ def svc(tmp_path, monkeypatch):
     monkeypatch.setattr(agents, "in_roster", lambda conversation: False)
     monkeypatch.setattr(agents, "bg_task_count", lambda sid: 1)
     monkeypatch.setattr(agents, "last_conversation", lambda sid: None)
+    monkeypatch.setattr(agents, "job_state", lambda sid: None)
     monkeypatch.setattr(service, "kill_tree", lambda pid: calls.append(("kill", pid)))
     monkeypatch.setattr(
         service, "open_terminal", lambda cwd, title, args: calls.append(("term", args))
@@ -321,6 +322,32 @@ def test_이어_열기는_all_의_처음_대화_번호로(svc):
 def test_꺼진_세션의_대화는_관리자가_기억하는_마지막_번호로(svc, monkeypatch):
     monkeypatch.setattr(agents, "last_conversation", lambda sid: AFTER_CLEAR_A)
     assert names(svc)["alpha"]["conversation"] == AFTER_CLEAR_A
+
+
+def test_대화가_없는_세션은_해제_연결_이어_열기를_막는다(svc, monkeypatch):
+    """관리자 기록이 계속 working 이라, 끊으면 Claude 가 다시 띄우고 그 사이 이어 열면 복사본이 생긴다."""
+    monkeypatch.setattr(agents, "job_state", lambda sid: "working")
+    svc.live.append(bg(ID_A, FIRST_A, "alpha", svc.cwd, pid=9, state="blocked", status="idle"))
+    assert "대화가 없는" in svc.stop(svc.entry(ID_A))
+    assert ("kill", 9) not in svc.calls
+    assert "대화가 없는" in svc.start(svc.entry(ID_B))  # 꺼져 보이는 사이
+    assert "대화가 없는" in svc.foreground(svc.entry(ID_B))
+    assert not any(c[0] in ("bg", "term") for c in svc.calls)
+
+
+def test_대화가_있는_세션은_관리자_기록이_done_이면_그대로_끈다(svc, monkeypatch):
+    monkeypatch.setattr(agents, "job_state", lambda sid: "done")
+    svc.live.append(bg(ID_A, FIRST_A, "alpha", svc.cwd, pid=9, state="done", status="idle"))
+    assert svc.stop(svc.entry(ID_A)) is None
+    assert ("kill", 9) in svc.calls
+
+
+def test_관리자_기록_상태를_읽는다(tmp_path, monkeypatch):
+    monkeypatch.setattr(agents, "JOBS", tmp_path)
+    (tmp_path / ID_A).mkdir()
+    (tmp_path / ID_A / "state.json").write_text('{"state": "working"}', encoding="utf-8")
+    assert agents.job_state(ID_A) == "working"
+    assert agents.job_state("없음") is None
 
 
 def test_답을_만드는_중이면_해제를_거절한다(svc):
