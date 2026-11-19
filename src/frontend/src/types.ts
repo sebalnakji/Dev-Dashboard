@@ -412,4 +412,6 @@ export interface ChatResponse {
   messages: ChatMessage[]
   /** 더 이전 질문이 있나 ([더 보기]) */
   more: boolean
+  /** 셸 명령으로 고친 파일도 잡히나 (git 저장소만). 프로젝트를 함께 물었을 때만 온다 */
+  shellTracked?: boolean
 }

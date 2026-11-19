@@ -15,8 +15,11 @@
 - 작업 비교: (작업, 파일)의 첫 before → 마지막 after
 - 차례 비교: (차례, 파일)의 첫 before → 마지막 after
 
-셸 명령(Bash)으로 고친 파일은 미리 알 수 없어 직전 내용을 뜰 수 없다. Claude 가 명령 결과에 남기는
-바뀐 부분(bashEditDiff 의 hunks)을 지금 내용에 거꾸로 적용해 직전 내용을 만든다.
+셸 명령(Bash)으로 고친 파일은 무엇을 고칠지 미리 알 수 없다. git 저장소면 명령 직전 · 직후의
+git status 를 견준다 (사용자 결정): 직전에 깨끗했던 파일의 직전 내용은 HEAD, 이미 고쳐져 있던
+파일은 명령 직전에 떠 둔 내용. 확실히 읽기만 하는 명령(ls · cat · git log …)은 건너뛴다.
+git 이 아닌 폴더는 Claude 가 결과에 남기는 바뀐 부분(bashEditDiff — 내부 형식이라 늘 오지는
+않는다)이 있을 때만, 지금 내용에 거꾸로 적용해 직전 내용을 만든다.
 
 훅에서 불리므로 표준 라이브러리와 git 명령만 쓴다.
 옛 기록(activity.jsonl 등)의 형식은 바꾸지 않는다.
@@ -25,6 +28,8 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -160,3 +165,212 @@ def bash_files(tool_response: object) -> list[dict]:
     if not isinstance(files, list):
         return []
     return [f for f in files if isinstance(f, dict) and isinstance(f.get("filePath"), str)]
+
+
+# --- 셸 명령: 읽기만 하는 명령 가리기 · git 상태 ---
+
+READ_ONLY = frozenset(
+    [
+        "ls",
+        "dir",
+        "cat",
+        "head",
+        "tail",
+        "wc",
+        "grep",
+        "egrep",
+        "fgrep",
+        "rg",
+        "ag",
+        "fd",
+        "echo",
+        "printf",
+        "pwd",
+        "which",
+        "where",
+        "type",
+        "file",
+        "stat",
+        "du",
+        "df",
+        "tree",
+        "less",
+        "more",
+        "uniq",
+        "cut",
+        "diff",
+        "cmp",
+        "date",
+        "whoami",
+        "printenv",
+        "true",
+        "false",
+        "test",
+        "[",
+        "realpath",
+        "readlink",
+        "dirname",
+        "basename",
+        "md5sum",
+        "sha1sum",
+        "sha256sum",
+        "nl",
+        "column",
+        "find",
+        "sort",
+        "jq",
+        "ps",
+        "tasklist",
+        "hostname",
+        "uname",
+        "id",
+        "sleep",
+        "seq",
+        "tr",
+        "comm",
+        "od",
+        "xxd",
+        "hexdump",
+        "strings",
+        "cd",
+    ]
+)
+"""파일을 바꾸지 않는 명령. 여기 없거나 애매하면 읽기 전용으로 보지 않는다 (사용자 결정)."""
+
+GIT_READ_ONLY = frozenset(
+    [
+        "status",
+        "log",
+        "diff",
+        "show",
+        "blame",
+        "grep",
+        "ls-files",
+        "ls-tree",
+        "rev-parse",
+        "describe",
+        "shortlog",
+        "cat-file",
+        "whatchanged",
+        "name-rev",
+        "merge-base",
+        "rev-list",
+        "count-objects",
+        "for-each-ref",
+        "show-ref",
+        "ls-remote",
+        "check-ignore",
+        "var",
+        "version",
+        "help",
+    ]
+)
+
+_PARTS = re.compile(r"&&|\|\||[;|&\n]")
+_HARMLESS_REDIRECT = re.compile(r"\d?>&\d|\d?>\s*(/dev/null|nul|\$null)\b", re.IGNORECASE)
+
+
+def read_only(command: object) -> bool:
+    """확실히 읽기만 하는 셸 명령인가. 이어 붙인 명령(&& ; |)은 모두 그래야 한다.
+    파일로 내보내기(>) · 명령 치환($( ) ` `) · 모르는 명령이 하나라도 있으면 False."""
+    if not isinstance(command, str) or not command.strip():
+        return False
+    if "`" in command or "$(" in command or "<(" in command:
+        return False
+    text = _HARMLESS_REDIRECT.sub(" ", command)
+    if ">" in text:
+        return False
+    for part in _PARTS.split(text):
+        words = part.split()
+        while words and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]):
+            words.pop(0)  # FOO=1 명령
+        if not words:
+            continue
+        name = os.path.basename(words[0].strip("\"'")).lower().removesuffix(".exe")
+        args = words[1:]
+        if name == "git":
+            rest = list(args)
+            while rest and rest[0].startswith("-"):
+                flag = rest.pop(0)
+                if flag in ("-C", "-c") and rest:
+                    rest.pop(0)
+            if rest and rest[0] in GIT_READ_ONLY:
+                continue
+            return False
+        if name not in READ_ONLY:
+            return False
+        if name == "find" and any(
+            a in ("-exec", "-execdir", "-delete", "-ok", "-fprint") for a in args
+        ):
+            return False
+        if name == "sort" and any(a.startswith(("-o", "--output")) for a in args):
+            return False
+    return True
+
+
+def find_top(path: str | Path | None) -> Path | None:
+    """path 를 품은 git 저장소(작업용 복사본 포함)의 맨 위 폴더.
+    git 을 부르지 않고 .git 을 찾는다."""
+    if not path:
+        return None
+    p = Path(os.path.abspath(path))
+    for d in (p, *p.parents):
+        if (d / ".git").exists():
+            return d
+    return None
+
+
+def status(top: Path) -> dict[str, str]:
+    """{저장소 기준 경로: 상태 두 글자}. 바뀐 · 새 파일(무시 목록 제외)만.
+    --no-optional-locks: 사용자의 git 명령과 index.lock 으로 부딪치지 않게."""
+    r = subprocess.run(
+        [
+            *GIT,
+            "--no-optional-locks",
+            "-C",
+            str(top),
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+            "--no-renames",
+            "--ignore-submodules",
+        ],
+        capture_output=True,
+        timeout=GIT_TIMEOUT,
+    )
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.decode("utf-8", "replace").strip())
+    out = {}
+    for item in r.stdout.decode("utf-8", "replace").split("\0"):
+        if len(item) > 3:
+            out[item[3:]] = item[:2]
+    return out
+
+
+def head_content(top: Path, rel: str) -> bytes | None:
+    """마지막 커밋의 그 파일 내용. 커밋에 없으면 None."""
+    r = subprocess.run(
+        [*GIT, "--no-optional-locks", "-C", str(top), "cat-file", "blob", f"HEAD:{rel}"],
+        capture_output=True,
+        timeout=GIT_TIMEOUT,
+    )
+    return r.stdout if r.returncode == 0 else None
+
+
+def put_paths(project_dir: Path, paths: list[str]) -> list[str]:
+    """여러 파일을 한 번에 넣는다 (git 한 번). 돌려주는 순서는 paths 와 같다."""
+    if not paths:
+        return []
+    ensure_repo(project_dir)
+    out = _git(project_dir, "hash-object", "-w", "--stdin-paths", data="\n".join(paths).encode())
+    return out.decode().split()
+
+
+def file_stat(path: str | Path) -> list[int] | None:
+    """[수정 시각(ns), 크기]. 없거나 파일이 아니면 None."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return [st.st_mtime_ns, st.st_size] if os.path.isfile(path) else None

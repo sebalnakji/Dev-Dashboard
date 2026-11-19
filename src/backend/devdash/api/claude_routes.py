@@ -79,6 +79,7 @@ def session_chat(
     out = chat.chat(path, limit)
     if project and records.project(project):
         records.chat_work(project, out["messages"])
+        out["shellTracked"] = records.shell_tracked(project)
     return JSONResponse(out)
 
 

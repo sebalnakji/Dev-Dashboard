@@ -819,7 +819,7 @@ def test_플러그인_훅_등록은_훅_스크립트가_처리하는_이벤트�
         command = groups[0]["hooks"][0]["command"]
         assert command.endswith(f'devdash_hook.py" {event}') and command.startswith("py -3 ")
     pre = hooks["hooks"]["PreToolUse"][0]["matcher"].split("|")
-    assert set(pre) == set(hook.FILE_TOOLS)
+    assert set(pre) == {*hook.FILE_TOOLS, "Bash"}  # 셸 명령 직전 git 상태
     # 셸 명령이 바꾼 파일도 스냅샷으로 남긴다 (직전 내용은 바뀐 부분을 거꾸로 적용해 만든다)
     post = hooks["hooks"]["PostToolUse"][0]["matcher"].split("|")
     assert set(post) == {*hook.FILE_TOOLS, "Bash"}
@@ -955,14 +955,155 @@ def test_git_이_아닌_폴더에서도_남긴다(env, capsys, tmp_path):
     )
 
 
+def shell(cwd: Path, capsys, command: str, change=None, prompt_id="p1", use="t1", response=None):
+    """Claude 의 셸 명령 한 번: 직전 훅 → 명령(change) → 직후 훅."""
+    data = {
+        "session_id": "s1",
+        "prompt_id": prompt_id,
+        "cwd": str(cwd),
+        "tool_name": "Bash",
+        "tool_use_id": use,
+        "tool_input": {"command": command},
+    }
+    run_hook("PreToolUse", data, capsys)
+    if change:
+        change()
+    run_hook("PostToolUse", {**data, "tool_response": response or {"stdout": ""}}, capsys)
+
+
+def acts(env) -> list[dict]:
+    return store.read_activity(key_of(env))
+
+
+def test_셸로_고친_파일은_명령_전후_git_상태로_잡고_직전은_마지막_커밋(env, capsys, doing):
+    """명령 전에 깨끗했던 파일 · 새로 만든 파일 · 지운 파일. bashEditDiff 가 없어도 된다."""
+    repo = env["repo"]
+    (repo / "src" / "b.txt").write_text("사과\n", encoding="utf-8")
+    git("add", ".", cwd=repo)
+    git("commit", "-qm", "b", cwd=repo)
+
+    def change():
+        (repo / "src" / "a.py").write_text("a 고침", encoding="utf-8")
+        (repo / "src" / "new.txt").write_text("새", encoding="utf-8")
+        (repo / "src" / "b.txt").unlink()
+
+    shell(repo, capsys, "python fix.py", change)
+    rows = {(r["path"], r["when"]): r for r in snaps(env)}
+    assert content(env, rows["src/a.py", "before"]["blob"]) == "a"  # HEAD
+    assert content(env, rows["src/a.py", "after"]["blob"]) == "a 고침"
+    assert rows["src/new.txt", "before"]["blob"] is None
+    assert content(env, rows["src/b.txt", "before"]["blob"]) == "사과\n"
+    assert rows["src/b.txt", "after"]["blob"] is None
+    ops = {a["path"]: (a["op"], a["tool"], a["task"]) for a in acts(env)}
+    assert ops == {
+        "src/a.py": ("modify", "Bash", "T-5"),
+        "src/new.txt": ("create", "Bash", "T-5"),
+        "src/b.txt": ("delete", "Bash", "T-5"),
+    }
+
+
+def test_이미_고쳐져_있던_파일은_명령_직전에_떠_둔_내용이_직전이다(env, capsys, doing):
+    repo = env["repo"]
+    a = repo / "src" / "a.py"
+    a.write_text("커밋 안 된 변경", encoding="utf-8")
+    (repo / "src" / "other.txt").write_text(
+        "안 바뀜", encoding="utf-8"
+    )  # 고쳐져 있지만 명령이 안 건드림
+    shell(
+        repo,
+        capsys,
+        "sed -i s/변경/수정/ src/a.py",
+        lambda: a.write_text("커밋 안 된 수정", encoding="utf-8"),
+    )
+    rows = snaps(env)
+    assert [(r["path"], r["when"]) for r in rows] == [("src/a.py", "before"), ("src/a.py", "after")]
+    assert content(env, rows[0]["blob"]) == "커밋 안 된 변경"
+    # 다음 명령: 그대로인 고쳐진 파일은 다시 넣지 않는다 (시각 · 크기가 같으면 떠 둔 번호를 쓴다)
+    calls = []
+    real = snap.put_paths
+    snap.put_paths = lambda d, paths: calls.append(paths) or real(d, paths)
+    try:
+        shell(repo, capsys, "python noop.py", use="t2")
+    finally:
+        snap.put_paths = real
+    assert calls == [[]] or calls == []
+    assert len(snaps(env)) == 2
+
+
+def test_읽기만_하는_셸_명령은_git_도_부르지_않는다(env, capsys, doing, monkeypatch):
+    called = []
+    monkeypatch.setattr(snap, "status", lambda top: called.append(top) or {})
+    monkeypatch.setattr(hook, "_snap", lambda: snap)
+    for command in (
+        "ls -la src",
+        "cat a.py | head -3",
+        "git log --oneline -5 && git status",
+        "cd src && grep -n x a.py 2>/dev/null",
+    ):
+        shell(env["repo"], capsys, command)
+    assert called == []
+    shell(env["repo"], capsys, "sed -i s/a/b/ src/a.py")  # 애매하면 돌린다
+    assert len(called) == 2  # 직전 · 직후
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("ls", True),
+        ("git -C x diff --stat", True),
+        ("FOO=1 rg pattern src | sort | uniq -c", True),
+        ("echo hi > out.txt", False),
+        ("echo hi 2>&1", True),
+        ("cat a > /dev/null", True),
+        ("sed -n 1,5p a.py", False),
+        ("find . -name '*.pyc' -delete", False),
+        ("sort -o out.txt in.txt", False),
+        ("git commit -m x", False),
+        ("git branch -D x", False),
+        ("ls $(pwd)", False),
+        ("python script.py", False),
+        ("npm test", False),
+        ("", False),
+    ],
+)
+def test_읽기만_하는_명령_가리기(command, expected):
+    assert snap.read_only(command) is expected
+
+
+def test_셸이_건드렸지만_내용이_그대로면_남기지_않는다(env, capsys, doing):
+    repo = env["repo"]
+    a = repo / "src" / "a.py"
+    shell(repo, capsys, "touch src/a.py", lambda: a.write_text("a", encoding="utf-8"))
+    assert snaps(env) == [] and acts(env) == []
+
+
+@pytest.fixture
+def plain(tmp_path, capsys, env):
+    """git 이 아닌 등록 폴더 + 진행 중 할 일 T-5 (세션 s1)."""
+    folder = tmp_path / "plain"
+    folder.mkdir()
+    store.register(folder)
+    run_hook(
+        "UserPromptSubmit",
+        {"session_id": "s1", "cwd": str(folder), "session_title": "develope"},
+        capsys,
+    )
+    key = store.project_key(store.norm(folder))
+    (store.project_dir(key) / "tasks" / "T-5-x.md").write_text(
+        "---\nstatus: doing\nsession: develope\ncreated: 2026-11-12\n---\n\n# T-5 x\n",
+        encoding="utf-8",
+    )
+    return {"dir": folder, "key": key}
+
+
 def bash_diff(path: Path, hunks: list[dict]) -> dict:
     return {"stdout": "", "bashEditDiff": {"files": [{"filePath": str(path), "hunks": hunks}]}}
 
 
 @pytest.mark.parametrize("eol", ["\n", "\r\n"])
-def test_셸로_고친_파일은_바뀐_부분을_거꾸로_적용해_직전_내용을_만든다(env, capsys, doing, eol):
+def test_git_이_아닌_폴더는_bashEditDiff_를_거꾸로_적용해_직전_내용을_만든다(capsys, plain, eol):
     """바뀐 부분의 줄에는 줄 끝이 없다 — 윈도우 줄바꿈(CRLF) 파일도 그 줄바꿈 그대로 되돌린다."""
-    a = env["repo"] / "src" / "a.py"
+    a = plain["dir"] / "a.py"
     a.write_bytes("하나\n둘째\n셋\n".replace("\n", eol).encode())  # sed 가 바꾼 뒤
     hunks = [
         {
@@ -973,26 +1114,27 @@ def test_셸로_고친_파일은_바뀐_부분을_거꾸로_적용해_직전_내
             "lines": [" 하나", "-둘", "+둘째", " 셋"],
         }
     ]
-    tool(env, capsys, "PostToolUse", "sed", name="Bash", response=bash_diff(a, hunks))
-    rows = snaps(env)
+    shell(plain["dir"], capsys, "sed -i s/둘/둘째/ a.py", response=bash_diff(a, hunks))
+    project = store.project_dir(plain["key"])
+    rows = snap.entries(project)
     assert [(r["when"], r["tool"]) for r in rows] == [("before", "Bash"), ("after", "Bash")]
-    assert content(env, rows[0]["blob"]) == "하나\n둘\n셋\n".replace("\n", eol)
-    # 변경 기록에도 남는다 (작업의 바뀐 파일 목록에 나오게)
-    act = store.read_activity(key_of(env))
-    assert act[-1]["path"] == "src/a.py" and act[-1]["tool"] == "Bash" and act[-1]["task"] == "T-5"
+    assert snap.get(project, rows[0]["blob"]).decode() == "하나\n둘\n셋\n".replace("\n", eol)
+    act = store.read_activity(plain["key"])
+    assert act[-1]["path"] == "a.py" and act[-1]["tool"] == "Bash" and act[-1]["task"] == "T-5"
 
 
-def test_바뀐_부분이_지금_내용과_맞지_않으면_직전은_알_수_없음(env, capsys, doing):
-    a = env["repo"] / "src" / "a.py"
+def test_git_이_아닌_폴더에서_바뀐_부분이_맞지_않으면_직전은_알_수_없음(capsys, plain):
+    a = plain["dir"] / "a.py"
     a.write_text("전혀 다른 내용\n", encoding="utf-8")
     hunks = [{"oldStart": 1, "oldLines": 1, "newStart": 1, "newLines": 1, "lines": ["-x", "+y"]}]
-    tool(env, capsys, "PostToolUse", "sed", name="Bash", response=bash_diff(a, hunks))
-    assert snaps(env)[0]["blob"] == "unknown"
+    shell(plain["dir"], capsys, "sed -i s/x/y/ a.py", response=bash_diff(a, hunks))
+    assert snap.entries(store.project_dir(plain["key"]))[0]["blob"] == "unknown"
 
 
-def test_파일을_바꾸지_않은_셸_명령은_아무것도_하지_않는다(env, capsys, doing):
-    tool(env, capsys, "PostToolUse", "ls", name="Bash", response={"stdout": "a.py"})
-    assert snaps(env) == []
+def test_git_이_아닌_폴더에서_bashEditDiff_가_없으면_못_잡는다(capsys, plain):
+    a = plain["dir"] / "a.py"
+    shell(plain["dir"], capsys, "python fix.py", lambda: a.write_text("새", encoding="utf-8"))
+    assert snap.entries(store.project_dir(plain["key"])) == []
 
 
 def test_스냅샷이_실패해도_변경_기록과_알림은_한다(env, capsys, doing, monkeypatch):

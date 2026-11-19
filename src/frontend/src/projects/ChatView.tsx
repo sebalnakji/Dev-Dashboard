@@ -133,7 +133,7 @@ export function ChatView({
           {/* 질문 → 답 → 작업: 답을 읽고 나서 무엇을 고쳤는지 본다 (작업 상자는 보라, 사용자 결정 T-27 · T-28) */}
           {t.answer?.work && (
             <div className="mt-6">
-              <WorkBox projectKey={projectKey} work={t.answer.work} onOpenFile={onOpenFile} onOpenTask={onOpenTask} />
+              <WorkBox projectKey={projectKey} shellTracked={data.shellTracked !== false} work={t.answer.work} onOpenFile={onOpenFile} onOpenTask={onOpenTask} />
             </div>
           )}
           {working && i === turns.length - 1 && (
@@ -173,11 +173,14 @@ function toTurns(messages: ChatMessage[]): Turn[] {
  */
 function WorkBox({
   projectKey,
+  shellTracked,
   work,
   onOpenFile,
   onOpenTask,
 }: {
   projectKey: string
+  /** false 면 git 이 아닌 폴더 — 셸 명령으로 고친 파일은 빠질 수 있다고 알린다 */
+  shellTracked: boolean
   work: ChatWork
   onOpenFile: (path: string) => void
   onOpenTask: (number: number) => void
@@ -195,6 +198,11 @@ function WorkBox({
       <div className="flex items-baseline gap-2 text-xs">
         <span className="font-semibold text-violet-300">작업</span>
         <span className="text-gray-600">파일 {work.files.length}개</span>
+        {!shellTracked && (
+          <span className="text-gray-600" title="셸 명령 전후의 git 상태를 견줘 잡는데, 이 폴더는 git 저장소가 아니다">
+            · git 이 아닌 폴더라 셸 명령으로 고친 파일은 빠질 수 있음
+          </span>
+        )}
       </div>
       <div className="mt-2 rounded-md border-l-2 border-violet-400 bg-[#2b2838] px-4 py-3">
         {work.task ? (

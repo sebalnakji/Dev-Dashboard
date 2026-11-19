@@ -1021,6 +1021,12 @@ def chat_work(key: str, messages: list[dict]) -> None:
         }
 
 
+def shell_tracked(key: str) -> bool:
+    """셸 명령으로 고친 파일을 잡을 수 있나 — git 저장소여야 명령 전후 상태를 견준다."""
+    proj = project(key)
+    return bool(proj) and snap.find_top(proj["root"]) is not None
+
+
 def turn_diff(key: str, prompt: str, path: str, full: bool = False) -> dict | None:
     """대화 한 차례가 파일 하나를 어떻게 바꿨나: 그 차례에 처음 고치기 직전 → 마지막으로 고친 직후.
     그 차례의 스냅샷이 없으면 None."""

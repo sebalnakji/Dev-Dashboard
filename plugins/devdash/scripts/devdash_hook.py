@@ -349,10 +349,142 @@ def on_post_tool(store, tasks_mod, key: str, root: str, data: dict) -> None:
     _remind_once(store, key, data, name, doing)
 
 
+SHELL_FILES_LIMIT = 100
+"""셸 명령 하나가 바꾼 파일이 이보다 많으면 앞의 것만 남긴다 (만들어 낸 파일 무더기 등)."""
+
+SHELL_BLOB_LIMIT = 5 * 1024 * 1024
+"""셸 명령으로 바뀐 파일이 이보다 크면 내용은 남기지 않는다 (unknown)."""
+
+PENDING_TTL = 3600.0
+"""명령 직전 상태를 이만큼 지나도 직후가 안 오면 버린다 (끊긴 명령)."""
+
+
+def _shell_state(store, key: str, sid: str | None) -> Path:
+    """세션별 셸 명령 상태: 직전 git 상태(pending)와 고쳐져 있던 파일의 내용 번호(cache)."""
+    return store.project_dir(key) / "shell" / f"{sid or 'none'}.json"
+
+
+def on_pre_bash(store, key: str, root: str, data: dict) -> None:
+    """셸 명령 직전: git status 와, 이미 고쳐져 있던 파일의 지금 내용을 떠 둔다.
+    떠 둔 내용은 (시각 · 크기)가 그대로면 다시 넣지 않는다. git 이 아닌 폴더는 하지 않는다."""
+    snap = _snap()
+    top = snap.find_top(data.get("cwd") or root)
+    if top is None:
+        return
+    files = snap.status(top)
+    path = _shell_state(store, key, data.get("session_id"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    project_dir = store.project_dir(key)
+    with store.locked(path):
+        state = _read_json(path)
+        old_cache = state.get("cache") or {}
+        cache, before, need = {}, {}, []
+        for rel, code in files.items():
+            full = str(top / rel)
+            st = snap.file_stat(full)
+            entry = {"code": code, "stat": st, "blob": None}
+            if st is not None:
+                hit = old_cache.get(full)
+                if st[1] > SHELL_BLOB_LIMIT:
+                    entry["blob"] = "unknown"
+                elif hit and hit[0] == st:
+                    entry["blob"] = hit[1]
+                else:
+                    need.append((full, entry))
+            before[rel] = entry
+        blobs = snap.put_paths(project_dir, [f for f, _ in need])
+        for (_full, entry), blob in zip(need, blobs, strict=True):
+            entry["blob"] = blob
+        for rel, entry in before.items():
+            if entry["stat"] is not None and entry["blob"] not in (None, "unknown"):
+                cache[str(top / rel)] = [entry["stat"], entry["blob"]]
+        pending = {
+            k: v
+            for k, v in (state.get("pending") or {}).items()
+            if time.time() - v.get("at", 0) < PENDING_TTL
+        }
+        pending[data.get("tool_use_id") or "last"] = {
+            "top": str(top),
+            "files": before,
+            "at": time.time(),
+        }
+        path.write_text(json.dumps({"cache": cache, "pending": pending}), encoding="utf-8")
+
+
 def on_post_bash(store, tasks_mod, key: str, root: str, data: dict) -> None:
-    """셸 명령이 바꾼 파일 (Claude 가 결과에 남긴 bashEditDiff). 직전 내용은 미리 뜰 수 없어,
+    """셸 명령이 바꾼 파일. git 저장소면 직전에 떠 둔 git 상태와 지금을 견준다.
+    git 이 아닌 폴더는 Claude 가 남긴 bashEditDiff 가 있을 때만."""
+    snap = _snap()
+    if snap.find_top(data.get("cwd") or root) is None:
+        _post_bash_from_diff(store, tasks_mod, key, root, data)
+        return
+    path = _shell_state(store, key, data.get("session_id"))
+    if not path.exists():
+        return
+    with store.locked(path):
+        state = _read_json(path)
+        pending = state.get("pending") or {}
+        pre = pending.pop(data.get("tool_use_id") or "last", None)
+        if pre is None:
+            return
+        path.write_text(json.dumps({**state, "pending": pending}), encoding="utf-8")
+    top = Path(pre["top"])
+    was = pre["files"]
+    changed = []
+    for rel in dict.fromkeys([*snap.status(top), *was]):
+        full = str(top / rel)
+        st = snap.file_stat(full)
+        if rel in was:
+            if was[rel]["stat"] == st:
+                continue  # 명령 전에도 고쳐져 있었고 그대로다
+            before = was[rel]["blob"]  # 없던 파일이면 None
+        else:
+            before = "HEAD"  # 명령 전에는 깨끗했다 — 직전 내용은 마지막 커밋
+        changed.append((rel, full, st, before))
+    if not changed:
+        return
+    name, doing = _turn(store, tasks_mod, key, data)
+    task = doing[0] if len(doing) == 1 else None
+    project_dir = store.project_dir(key)
+    recorded = False
+    for rel, full, st, before in changed[:SHELL_FILES_LIMIT]:
+        where = store.relative_in_project(full, root)
+        if where is None:
+            continue
+        rel_p, worktree = where
+        try:
+            if before == "HEAD":
+                head = snap.head_content(top, rel)
+                before = snap.put(project_dir, head) if head is not None else None
+            if st is None:
+                after = None
+            elif st[1] > SHELL_BLOB_LIMIT:
+                after = "unknown"
+            else:
+                content = snap.read_file(full)
+                after = snap.put(project_dir, content) if content is not None else None
+        except Exception:
+            with contextlib.suppress(Exception):
+                log_error(["devdash_hook.py", "snapshot"])
+            before, after = "unknown", "unknown"
+        if before == after and before not in ("unknown",):
+            continue  # 건드렸지만 내용은 그대로
+        op = "create" if before is None else "delete" if after is None else "modify"
+        _record(store, key, data, task, op, rel_p, worktree, "Bash")
+        recorded = True
+        with _snapshot_errors():
+            spot = f"{worktree or ''}:{rel_p}"
+            if _first_in_turn(store, key, data.get("session_id"), data.get("prompt_id"), spot):
+                _snapshot(store, snap, key, data, task, rel_p, worktree, "before", before, "Bash")
+            _snapshot(store, snap, key, data, task, rel_p, worktree, "after", after, "Bash")
+    if recorded:
+        _remind_once(store, key, data, name, doing)
+
+
+def _post_bash_from_diff(store, tasks_mod, key: str, root: str, data: dict) -> None:
+    """git 이 아닌 폴더: Claude 가 결과에 남긴 bashEditDiff 로 바뀐 파일을 안다. 직전 내용은
     그 차례에 처음 바뀐 파일이면 지금 내용에 바뀐 부분을 거꾸로 적용해 만든다.
-    맞지 않으면 unknown."""
+    맞지 않으면 unknown. bashEditDiff 는 내부 형식이라 늘 오지는 않는다 — 안 오면 못 잡는다."""
     snap = _snap()
     name, doing = _turn(store, tasks_mod, key, data)
     task = doing[0] if len(doing) == 1 else None
@@ -516,14 +648,14 @@ def _read_json(path: Path) -> dict:
 def run(event: str, data: dict) -> None:
     # 파일을 바꾸지 않는 도구는 프로젝트를 찾기(git 호출) 전에 끝낸다. 모든 세션에서 도는 훅이다
     tool = data.get("tool_name")
-    if event == "PreToolUse" and tool not in FILE_TOOLS:
-        return
-    if (
-        event == "PostToolUse"
-        and tool not in FILE_TOOLS
-        and (tool != "Bash" or not _snap().bash_files(data.get("tool_response")))
-    ):
-        return
+    if event in ("PreToolUse", "PostToolUse"):
+        if tool == "Bash":
+            tool_input = data.get("tool_input")
+            command = tool_input.get("command") if isinstance(tool_input, dict) else None
+            if _snap().read_only(command):  # ls · cat · git log … : git status 도 돌리지 않는다
+                return
+        elif tool not in FILE_TOOLS:
+            return
     store, tasks_mod = _store()
     found = store.find_project(os.environ.get("CLAUDE_PROJECT_DIR"), data.get("cwd"))
     if found is None:
@@ -535,6 +667,8 @@ def run(event: str, data: dict) -> None:
         on_session_start(store, key, data)
     elif event == "SessionEnd":
         on_session_end(store, key, data)
+    elif event == "PreToolUse" and tool == "Bash":
+        on_pre_bash(store, key, root, data)
     elif event == "PreToolUse":
         on_pre_tool(store, tasks_mod, key, root, data)
     elif event == "PostToolUse":
