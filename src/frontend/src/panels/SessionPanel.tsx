@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
 
 import {
   addGroup,
@@ -61,6 +61,8 @@ export function SessionPanel() {
   const [pending, setPending] = useState<Record<string, SessionState>>({})
   const [closed, setClosed] = useState(loadClosed)
   const [menu, setMenu] = useState<string | null>(null)
+  // 메뉴가 스크롤 · 창 크기 변화를 감시할 때 매번 다시 걸지 않게 고정된 함수로 넘긴다
+  const closeMenu = useCallback(() => setMenu(null), [])
   const [dialog, setDialog] = useState<Dialog | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
   const [dropAt, setDropAt] = useState<DropAt | null>(null)
@@ -292,6 +294,7 @@ export function SessionPanel() {
                   <Menu
                     open={menu === `group:${s.key}`}
                     onOpen={() => setMenu(`group:${s.key}`)}
+                    onClose={closeMenu}
                     items={[
                       { label: '이름 바꾸기', onClick: () => (setMenu(null), setDialog({ kind: 'renameGroup', name: s.key })) },
                       { label: '그룹 지우기', danger: true, onClick: () => removeGroup(s.key) },
@@ -317,6 +320,7 @@ export function SessionPanel() {
                     <Menu
                       open={menu === row.id}
                       onOpen={() => setMenu(row.id)}
+                      onClose={closeMenu}
                       items={[
                         ...[...groups.map((g) => g.name), UNGROUPED]
                           .filter((g) => g !== s.key)
@@ -473,23 +477,67 @@ function IconButton({ title, onClick, children }: { title: string; onClick: () =
   )
 }
 
-/** ⋯ 메뉴. 바깥 누르기 처리는 칸이 맡는다 (열린 메뉴 하나만) */
+/** 메뉴와 ⋯ 사이 · 화면 끝과의 여백 (px) */
+const MENU_GAP = 4
+const MENU_EDGE = 8
+
+/**
+ * ⋯ 메뉴. ⋯ 오른쪽 옆으로 펼친다 (메뉴 위쪽 = ⋯ 위쪽). 화면 오른쪽 끝에 닿으면 ⋯ 왼쪽으로.
+ *
+ * ⋯ 가 줄 맨 오른쪽이라 세션 칸 안에는 펼칠 자리가 없다 — 칸에 잘리지 않게 화면 기준(fixed)으로 그린다.
+ * 그래서 스크롤 · 창 크기가 바뀌면 ⋯ 와 어긋나므로 닫는다. 바깥 누르기 처리는 칸이 맡는다 (열린 메뉴 하나만).
+ */
 function Menu({
   open,
   onOpen,
+  onClose,
   items,
 }: {
   open: boolean
   onOpen: () => void
+  onClose: () => void
   items: { label: string; danger?: boolean; onClick: () => void }[]
 }) {
+  const anchor = useRef<HTMLSpanElement>(null)
+  const panel = useRef<HTMLSpanElement>(null)
+
+  // 그리기 전에 자리를 잡는다 — 메뉴 너비 · 높이를 알아야 오른쪽 · 아래 끝에 닿는지 안다
+  useLayoutEffect(() => {
+    const box = anchor.current?.getBoundingClientRect()
+    const menu = panel.current
+    if (!open || !box || !menu) return
+    let left = box.right + MENU_GAP
+    if (left + menu.offsetWidth > window.innerWidth - MENU_EDGE) {
+      left = Math.max(MENU_EDGE, box.left - MENU_GAP - menu.offsetWidth)
+    }
+    const top = Math.max(MENU_EDGE, Math.min(box.top, window.innerHeight - MENU_EDGE - menu.offsetHeight))
+    menu.style.left = `${left}px`
+    menu.style.top = `${top}px`
+    menu.style.visibility = 'visible'
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    window.addEventListener('scroll', onClose, true)
+    window.addEventListener('resize', onClose)
+    return () => {
+      window.removeEventListener('scroll', onClose, true)
+      window.removeEventListener('resize', onClose)
+    }
+  }, [open, onClose])
+
   return (
-    <span className="relative">
+    <span ref={anchor} className="inline-block">
       <IconButton title="메뉴" onClick={onOpen}>
         ⋯
       </IconButton>
       {open && (
-        <span className="absolute right-0 top-7 z-20 flex min-w-36 flex-col rounded-md border border-edge bg-panel py-1 shadow-lg">
+        <span
+          ref={panel}
+          // 자리를 잡기 전 첫 그림에는 보이지 않게 둔다
+          style={{ visibility: 'hidden', left: 0, top: 0 }}
+          className="fixed z-20 flex min-w-36 flex-col rounded-md border border-edge bg-panel py-1 shadow-lg"
+        >
           {items.map((item) => (
             <button
               key={item.label}
