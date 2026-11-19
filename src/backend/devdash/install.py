@@ -203,6 +203,10 @@ def setup_claude(ask: Ask) -> list[str]:
             "작업 기록 플러그인의 훅은 'py -3' 으로 파이썬 3.11 이상을 부릅니다."
             " python.org 설치본(py 런처 포함)을 설치하세요."
         )
+    elif sys.platform != "win32" and not (shutil.which("python3") or shutil.which("python")):
+        todo.append(
+            "작업 기록 플러그인의 훅은 python3 으로 부릅니다. PATH 에서 python3 를 찾지 못했습니다."
+        )
     todo.append("작업 기록을 켤 프로젝트에서 Claude 에게 /devdash:init 을 입력하세요.")
     return todo
 

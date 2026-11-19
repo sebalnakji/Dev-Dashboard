@@ -23,6 +23,7 @@ import type {
   TaskDetail,
   TaskFileDiff,
   TaskRow,
+  PcAbilities,
 } from '../types'
 
 async function getJson<T>(path: string): Promise<T> {
@@ -84,6 +85,10 @@ export const createSession = (body: { cwd: string; name: string; group: string |
   sendJson('POST', '/api/claude/sessions', body)
 
 export const fetchFolders = () => getJson<FolderChoice[]>('/api/claude/folders')
+/** 이 OS 에서 되는 것 — 한 번만 묻는다. 묻기 전 · 실패하면 된다고 본다 (윈도우에서 버튼이 깜빡이지 않게) */
+let abilities: Promise<PcAbilities> | null = null
+export const fetchAbilities = () =>
+  (abilities ??= getJson<PcAbilities>('/api/pc/abilities').catch(() => ({ terminal: true, pickFolder: true })))
 
 export const fetchCompat = () => getJson<CompatStatus>('/api/claude/compat')
 

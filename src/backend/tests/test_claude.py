@@ -20,7 +20,6 @@ from fastapi.testclient import TestClient
 from devdash.api import claude_routes
 from devdash.claude import agents, chat, registry, service
 from devdash.claude.service import SessionService
-from devdash.local.windows import parse_tasklist
 
 ID_A, ID_B, ID_C = "aaaaaaaa", "bbbbbbbb", "cccccccc"
 FIRST_A = "aaaaaaaa-1111-2222-3333-444444444444"
@@ -239,14 +238,39 @@ def test_신뢰_폴더는_승인한_것만_있는_폴더만(tmp_path, monkeypatc
 # --- PC 메모리 ---
 
 
-def test_tasklist_를_앱_이름별로_합친다():
-    text = (
-        '"chrome.exe","1","Console","1","100,000 K"\n'
-        '"chrome.exe","2","Console","1","50.000 K"\n'  # 구분 기호가 다른 지역 설정
-        '"Messenger 4.0.exe","3","Console","1","1 K"\n'
-        "broken line\n"
+def test_앱별_메모리는_이름으로_합치고_못_읽는_프로세스는_건너뛴다(monkeypatch):
+    from types import SimpleNamespace
+
+    from devdash.local import system
+
+    def proc(name, rss):
+        mem = SimpleNamespace(rss=rss) if rss is not None else None
+        return SimpleNamespace(info={"name": name, "memory_info": mem})
+
+    procs = [proc("chrome.exe", 100), proc("chrome.exe", 50), proc("node", 7), proc("x", None)]
+    monkeypatch.setattr(system.psutil, "process_iter", lambda attrs: procs)
+    assert system.app_memory() == {"chrome": 150, "node": 7}
+
+
+def test_이_PC_메모리와_프로세스_트리_끄기는_어느_OS_에서나_된다():
+    import subprocess
+    import sys
+    import time
+
+    from devdash.local import kill_tree, memory_status
+
+    total, avail = memory_status()
+    assert total > 0 and 0 < avail <= total
+    # 자식이 손자를 띄운 채 기다린다 — 트리째 끈다
+    code = (
+        "import subprocess, sys, time; "
+        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); time.sleep(60)"
     )
-    assert parse_tasklist(text) == {"chrome": 150_000 * 1024, "Messenger 4.0": 1024}
+    proc = subprocess.Popen([sys.executable, "-c", code])
+    time.sleep(1.5)
+    kill_tree(proc.pid)
+    assert proc.wait(timeout=10) is not None
+    kill_tree(proc.pid)  # 이미 없어도 조용히 끝난다
 
 
 # --- 세션 칸 (서비스) ---

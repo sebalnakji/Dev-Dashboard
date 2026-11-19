@@ -396,7 +396,7 @@ def on_pre_bash(store, key: str, root: str, data: dict) -> None:
                     need.append((full, entry))
             before[rel] = entry
         blobs = snap.put_paths(project_dir, [f for f, _ in need])
-        for (_full, entry), blob in zip(need, blobs, strict=True):
+        for (_full, entry), blob in zip(need, blobs):  # noqa: B905 — 3.9(macOS 기본 python3)에도 돌게
             entry["blob"] = blob
         for rel, entry in before.items():
             if entry["stat"] is not None and entry["blob"] not in (None, "unknown"):

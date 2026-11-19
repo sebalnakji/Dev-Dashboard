@@ -15,7 +15,6 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
-import msvcrt
 import os
 import re
 import subprocess
@@ -179,24 +178,25 @@ def relative_in_project(file_path: str, root: str) -> tuple[str, str | None] | N
 
 
 @contextlib.contextmanager
-def locked(path: Path) -> Iterator[None]:
+def locked(path: Path, wait: float | None = None, busy: str | None = None) -> Iterator[None]:
     """다른 프로세스와 겹치지 않게 path 옆 잠금 파일을 쥔다.
 
     윈도우의 '끝에 덧붙이기'는 한 번에 일어나지 않아, 여러 세션이 동시에 쓰면 줄이 사라지고 깨진다
     (3단계 Fable 검토 · 직접 재현: 6개 프로세스 1,800줄 → 1,377줄). 그래서 쓰기 전에 잠근다.
-    LOCK_WAIT 안에 못 쥐면 TimeoutError — 부르는 쪽(훅)이 삼킨다.
+    wait(기본 LOCK_WAIT) 안에 못 쥐면 TimeoutError(busy 또는 기본 문구) — 부르는 쪽(훅)이 삼킨다.
+    대시보드의 세션 목록(registry)도 이 함수로 잠근다.
     """
     lock = path.with_name(path.name + ".lock")
     fd = os.open(lock, os.O_RDWR | os.O_CREAT)
     try:
-        deadline = time.monotonic() + LOCK_WAIT
+        deadline = time.monotonic() + (LOCK_WAIT if wait is None else wait)
         while True:
             try:
                 _lock(fd)
                 break
             except OSError:
                 if time.monotonic() > deadline:
-                    raise TimeoutError(f"잠금을 얻지 못했습니다: {lock}") from None
+                    raise TimeoutError(busy or f"잠금을 얻지 못했습니다: {lock}") from None
                 time.sleep(0.01)
         try:
             yield
@@ -206,15 +206,27 @@ def locked(path: Path) -> Iterator[None]:
         os.close(fd)
 
 
-def _lock(fd: int) -> None:
-    """윈도우 전용 (이 도구는 윈도우만 지원한다). 첫 바이트 하나를 잠근다."""
-    os.lseek(fd, 0, os.SEEK_SET)
-    msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+if os.name == "nt":
+    import msvcrt
 
+    def _lock(fd: int) -> None:
+        """기다리지 않고 잠근다 — 못 쥐면 OSError. 윈도우는 첫 바이트 하나를 잠근다."""
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
 
-def _unlock(fd: int) -> None:
-    os.lseek(fd, 0, os.SEEK_SET)
-    msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+    def _unlock(fd: int) -> None:
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+
+else:
+    import fcntl
+
+    def _lock(fd: int) -> None:
+        """기다리지 않고 잠근다 — 못 쥐면 OSError(BlockingIOError)."""
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def _unlock(fd: int) -> None:
+        fcntl.flock(fd, fcntl.LOCK_UN)
 
 
 def append_activity(key: str, record: dict) -> None:

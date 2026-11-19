@@ -21,12 +21,16 @@ def settings_path() -> Path:
 
 
 def rules(home: Path) -> list[str]:
-    """권한 규칙 두 줄. 윈도우 경로는 규칙에서 '//c/Users/...' 로 쓴다 (공식 문서).
+    """권한 규칙 두 줄. 절대 경로는 '//' 로 시작해야 한다 (공식 문서) — '/' 하나면 루트가 아니라
+    설정 파일 자리(~/.claude/) 기준이 된다. 윈도우 'C:/Users/…' → '//c/Users/…',
+    macOS · Linux '/home/…' → '//home/…'.
     Edit 규칙이 새 파일 만들기(Write)까지 덮는다 (실제 세션으로 확인).
     정션을 풀지 않는다 — Claude 는 훅이 알려 준 경로(풀지 않은 것)로 접근한다."""
     posix = home.absolute().as_posix()  # 'C:/Users/<사용자>/.devdash'
     if len(posix) > 1 and posix[1] == ":":
         posix = f"//{posix[0].lower()}{posix[2:]}"
+    elif posix.startswith("/") and not posix.startswith("//"):
+        posix = "/" + posix
     return [f"Read({posix}/**)", f"Edit({posix}/**)"]
 
 

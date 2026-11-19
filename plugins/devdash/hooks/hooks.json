@@ -2,28 +2,28 @@
   "description": "devdash 작업 기록 — 1겹 자동 기록(변경 기록 · 스냅샷) · 2겹 알림과 강제. 등록 안 된 프로젝트에서는 바로 끝난다",
   "hooks": {
     "UserPromptSubmit": [
-      { "hooks": [ { "type": "command", "command": "py -3 \"${CLAUDE_PLUGIN_ROOT}/scripts/devdash_hook.py\" UserPromptSubmit", "timeout": 15 } ] }
+      { "hooks": [ { "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh\" devdash_hook.py UserPromptSubmit", "timeout": 15 } ] }
     ],
     "SessionStart": [
-      { "hooks": [ { "type": "command", "command": "py -3 \"${CLAUDE_PLUGIN_ROOT}/scripts/devdash_hook.py\" SessionStart", "timeout": 15 } ] }
+      { "hooks": [ { "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh\" devdash_hook.py SessionStart", "timeout": 15 } ] }
     ],
     "SessionEnd": [
-      { "hooks": [ { "type": "command", "command": "py -3 \"${CLAUDE_PLUGIN_ROOT}/scripts/devdash_hook.py\" SessionEnd", "timeout": 15 } ] }
+      { "hooks": [ { "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh\" devdash_hook.py SessionEnd", "timeout": 15 } ] }
     ],
     "PreToolUse": [
       {
         "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell",
-        "hooks": [ { "type": "command", "command": "py -3 \"${CLAUDE_PLUGIN_ROOT}/scripts/devdash_hook.py\" PreToolUse", "timeout": 15 } ]
+        "hooks": [ { "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh\" devdash_hook.py PreToolUse", "timeout": 15 } ]
       }
     ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell",
-        "hooks": [ { "type": "command", "command": "py -3 \"${CLAUDE_PLUGIN_ROOT}/scripts/devdash_hook.py\" PostToolUse", "timeout": 15 } ]
+        "hooks": [ { "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh\" devdash_hook.py PostToolUse", "timeout": 15 } ]
       }
     ],
     "Stop": [
-      { "hooks": [ { "type": "command", "command": "py -3 \"${CLAUDE_PLUGIN_ROOT}/scripts/devdash_hook.py\" Stop", "timeout": 15 } ] }
+      { "hooks": [ { "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh\" devdash_hook.py Stop", "timeout": 15 } ] }
     ]
   }
 }

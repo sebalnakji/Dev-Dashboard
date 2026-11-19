@@ -80,8 +80,12 @@ def test_시간이_넘으면_그_프로세스_트리만_끝낸다():
     from devdash.local import run_bounded
 
     start = time.time()
-    # cmd 가 ping 을 손자로 띄워 10초 기다린다. 2초에 끝내야 한다
-    assert run_bounded(["cmd", "/c", "ping -n 11 127.0.0.1 >nul"], timeout=2) is None
+    # 자식이 손자를 띄워 10초 기다린다 (claude: cmd → node 처럼). 2초에 끝내야 한다
+    grandchild = (
+        "import subprocess, sys; "
+        "subprocess.run([sys.executable, '-c', 'import time; time.sleep(10)'])"
+    )
+    assert run_bounded([sys.executable, "-c", grandchild], timeout=2) is None
     assert time.time() - start < 8
     echo = "import sys; sys.stdout.buffer.write(sys.stdin.buffer.read())"
     code, out, _ = run_bounded([sys.executable, "-c", echo], timeout=30, input_text="안녕\n")

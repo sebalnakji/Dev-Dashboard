@@ -17,10 +17,28 @@ def home(tmp_path, monkeypatch) -> Path:
     return h
 
 
-def test_윈도우_경로는_권한_규칙_표기로_바꾼다(home):
+def test_절대_경로는_권한_규칙에서_슬래시_둘로_시작한다(home):
+    """'/' 하나면 설정 파일 자리(~/.claude/) 기준 상대 경로가 된다 (공식 문서)."""
     posix = home.absolute().as_posix()
-    expected = f"//{posix[0].lower()}{posix[2:]}/**"
+    # 윈도우 C:/Users/… → //c/Users/… · macOS · Linux /home/… → //home/…
+    windows = posix[1:2] == ":"
+    expected = f"//{posix[0].lower()}{posix[2:]}/**" if windows else f"/{posix}/**"
     assert plugin_perms.rules(home) == [f"Read({expected})", f"Edit({expected})"]
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [("/home/u/.devdash", "//home/u/.devdash/**"), ("/Users/u/.devdash", "//Users/u/.devdash/**")],
+)
+def test_macOS_Linux_경로도_루트_기준으로_쓴다(path, expected, monkeypatch):
+    class Fake:
+        def absolute(self):
+            return self
+
+        def as_posix(self):
+            return path
+
+    assert plugin_perms.rules(Fake()) == [f"Read({expected})", f"Edit({expected})"]
 
 
 def test_없는_규칙만_더하고_다른_설정은_그대로_둔다(home, tmp_path):

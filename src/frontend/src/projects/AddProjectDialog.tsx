@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { addProject, fetchCandidates, pickFolder } from '../api/client'
 import { Modal } from '../components/Modal'
 import { BUTTON, INPUT, NOTICE, reasonOf } from '../components/styles'
+import { useAbilities } from '../hooks/useAbilities'
 import type { ProjectCandidate, ProjectRow } from '../types'
 
 /**
@@ -22,6 +23,7 @@ export function AddProjectDialog({
   const [name, setName] = useState('')
   const [message, setMessage] = useState<string | null>(null)
   const [busy, setBusy] = useState<'pick' | 'add' | null>(null)
+  const { pickFolder: canPick } = useAbilities() // 윈도우가 아니면 [폴더 찾기] 를 숨긴다
 
   useEffect(() => {
     fetchCandidates()
@@ -101,12 +103,14 @@ export function AddProjectDialog({
           id="project-root"
           className={INPUT}
           value={root}
-          placeholder="C:\Projects\이름"
+          placeholder={canPick ? 'C:\\Projects\\이름' : '/home/나/projects/이름'}
           onChange={(e) => setRoot(e.target.value)}
         />
-        <button type="button" className={`${BUTTON} shrink-0`} disabled={busy != null} onClick={pick}>
-          {busy === 'pick' ? '고르는 중…' : '폴더 찾기'}
-        </button>
+        {canPick && (
+          <button type="button" className={`${BUTTON} shrink-0`} disabled={busy != null} onClick={pick}>
+            {busy === 'pick' ? '고르는 중…' : '폴더 찾기'}
+          </button>
+        )}
       </div>
 
       <label className="mb-1 block text-xs text-gray-400" htmlFor="project-name">

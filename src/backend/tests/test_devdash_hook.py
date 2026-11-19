@@ -413,13 +413,14 @@ def test_망가진_입력에도_세션을_방해하지_않고_오류만_남긴�
     assert "JSONDecodeError" in (env["home"] / "hook-errors.log").read_text(encoding="utf-8")
 
 
-@pytest.mark.skipif(shutil.which("py") is None, reason="윈도우 파이썬 실행기(py)가 없음")
-def test_실제로_py_3_으로_실행해도_동작한다(env):
-    """훅은 실제로 'py -3 스크립트' 로 불린다. 같은 프로세스 안 시험은 sys.path·stdin 바이트 처리를 못 본다."""
+@pytest.mark.skipif(shutil.which("sh") is None, reason="sh 가 없음 (윈도우는 Git Bash)")
+def test_실제로_실행기로_불러도_동작한다(env):
+    """훅은 실제로 'sh run.sh devdash_hook.py 이벤트' 로 불린다 (실행기가 OS 에 맞는 파이썬을 고른다).
+    같은 프로세스 안 시험은 sys.path·stdin 바이트 처리를 못 본다."""
     store.register(env["repo"])
     data = json.dumps({"session_id": "s1", "session_title": "실제", "cwd": str(env["repo"])})
     r = subprocess.run(
-        ["py", "-3", str(SCRIPTS / "devdash_hook.py"), "UserPromptSubmit"],
+        ["sh", str(SCRIPTS / "run.sh"), "devdash_hook.py", "UserPromptSubmit"],
         input=data.encode("utf-8"),
         capture_output=True,
         env=os.environ.copy(),
@@ -817,7 +818,7 @@ def test_플러그인_훅_등록은_훅_스크립트가_처리하는_이벤트�
     }
     for event, groups in hooks["hooks"].items():
         command = groups[0]["hooks"][0]["command"]
-        assert command.endswith(f'devdash_hook.py" {event}') and command.startswith("py -3 ")
+        assert command == f'sh "${{CLAUDE_PLUGIN_ROOT}}/scripts/run.sh" devdash_hook.py {event}'
     pre = hooks["hooks"]["PreToolUse"][0]["matcher"].split("|")
     assert set(pre) == {*hook.FILE_TOOLS, *hook.SHELL_TOOLS}  # 셸 명령 직전 git 상태
     # 셸 명령이 바꾼 파일도 스냅샷으로 남긴다 (직전 내용은 바뀐 부분을 거꾸로 적용해 만든다)

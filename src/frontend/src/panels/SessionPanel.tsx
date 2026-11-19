@@ -14,6 +14,7 @@ import {
 import { Column, ColumnTitle } from '../components/Column'
 import { ContextMeter } from '../components/ContextMeter'
 import { BUTTON, OFFLINE } from '../components/styles'
+import { useAbilities } from '../hooks/useAbilities'
 import { useNow } from '../hooks/useNow'
 import type {
   ActionResult,
@@ -631,6 +632,7 @@ function SessionLine({
   menu: ReactNode
 }) {
   const action = ACTION[state]
+  const { terminal } = useAbilities() // 윈도우가 아니면 터미널 창 열기(>_)를 숨긴다
   // 포그라운드: 꺼졌으면 터미널 창에서 이어 열고, 켜졌으면 붙는다
   const fgTitle =
     state === 'on'
@@ -671,7 +673,7 @@ function SessionLine({
         <ContextMeter tokens={row.tokens} compactions={row.compactions} />
         {/* 다른 상태엔 자리만 비워 둬서 아이콘 · 버튼 열이 흐트러지지 않게 한다 */}
         <span className="w-[30px] shrink-0 text-right">
-          {(state === 'on' || state === 'off') && (
+          {terminal && (state === 'on' || state === 'off') && (
             <button
               type="button"
               title={fgTitle}

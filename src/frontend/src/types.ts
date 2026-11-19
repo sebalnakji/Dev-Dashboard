@@ -415,3 +415,9 @@ export interface ChatResponse {
   /** 셸 명령으로 고친 파일도 잡히나 (git 저장소만). 프로젝트를 함께 물었을 때만 온다 */
   shellTracked?: boolean
 }
+
+/** 이 OS 에서 되는 것. 윈도우가 아니면 터미널 창 열기 · 폴더 선택 창이 없다 */
+export interface PcAbilities {
+  terminal: boolean
+  pickFolder: boolean
+}

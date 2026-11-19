@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from devdash import compat, records
 from devdash.claude import agents, chat, registry
 from devdash.claude.service import Result, SessionService
-from devdash.local import app_memory, memory_status
+from devdash.local import ABILITIES, app_memory, memory_status
 
 router = APIRouter(prefix="/api")
 
@@ -204,6 +204,12 @@ def place_session(request: Request, session_id: str, body: PlaceBody) -> JSONRes
 
 _memory: tuple[float, dict] = (0.0, {})
 _memory_lock = threading.Lock()
+
+
+@router.get("/pc/abilities")
+def pc_abilities() -> dict:
+    """이 OS 에서 되는 것 (터미널 창 열기 · 폴더 선택 창). 화면이 안 되는 버튼을 숨긴다."""
+    return ABILITIES
 
 
 @router.get("/pc/memory")

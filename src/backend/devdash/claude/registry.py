@@ -22,13 +22,16 @@ from __future__ import annotations
 
 import contextlib
 import json
-import msvcrt
 import os
 import time
 from collections.abc import Iterator
 from pathlib import Path
 
 from devdash.home import sessions_path
+
+# isort: split
+# 위의 devdash.home 이 플러그인 스크립트 폴더를 import 경로에 올린 뒤에야 불러올 수 있다
+import devdash_store
 
 VERSION = 2
 
@@ -95,29 +98,13 @@ def editing(path: Path | None = None) -> Iterator[dict]:
     블록에서 예외가 나면 저장하지 않는다. 저장할 때 기간이 지난 복원 정보를 지운다.
     """
     path = path or sessions_path()
-    lock = path.with_name(path.name + ".lock")
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(lock, os.O_RDWR | os.O_CREAT)
-    try:
-        deadline = time.monotonic() + LOCK_WAIT
-        while True:
-            try:
-                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
-                break
-            except OSError:
-                if time.monotonic() > deadline:
-                    raise TimeoutError(f"세션 배치를 다른 곳에서 고치고 있습니다: {path}") from None
-                time.sleep(0.02)
-        try:
-            data = load(path)
-            yield data
-            prune_deleted(data)
-            save(data, path)
-        finally:
-            os.lseek(fd, 0, os.SEEK_SET)
-            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
-    finally:
-        os.close(fd)
+    busy = f"세션 배치를 다른 곳에서 고치고 있습니다: {path}"
+    with devdash_store.locked(path, wait=LOCK_WAIT, busy=busy):  # OS 별 잠금은 한 곳에
+        data = load(path)
+        yield data
+        prune_deleted(data)
+        save(data, path)
 
 
 def prune_deleted(data: dict, now: float | None = None) -> None:
