@@ -13,7 +13,7 @@ import os
 import threading
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 from devdash import local, records
@@ -150,6 +150,29 @@ def read_file(key: str, path: str) -> JSONResponse:
         return _error(str(exc), 404)
     except ValueError as exc:
         return _error(str(exc), 409)
+
+
+IMAGE_HEADERS = {
+    # 받은 형식 그대로만 해석하게 (글을 그림이라고 속여 HTML 로 돌리지 못하게)
+    "X-Content-Type-Options": "nosniff",
+    # 화면은 <img> 로만 그려 svg 안의 스크립트가 돌지 않는다. 이 주소를 직접 열어도 돌지 않게 막는다
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+    "Cache-Control": "no-cache",
+}
+
+
+@router.get("/{key}/image")
+def read_image(key: str, path: str) -> Response:
+    """[파일] 보기 · 문서 속 그림. 폴더 밖 · 큰 파일 · 그림이 아닌 파일은 409, 없으면 404."""
+    if bad := _check(key, need_folder=True):
+        return bad
+    try:
+        content, kind = records.read_image(key, path)
+    except FileNotFoundError as exc:
+        return _error(str(exc), 404)
+    except ValueError as exc:
+        return _error(str(exc), 409)
+    return Response(content, media_type=kind, headers=IMAGE_HEADERS)
 
 
 @router.get("/{key}/sessions")

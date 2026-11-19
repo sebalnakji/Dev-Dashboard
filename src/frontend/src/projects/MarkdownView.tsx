@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react'
+import { memo, useMemo, useState } from 'react'
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -25,6 +25,7 @@ function MarkdownViewInner({
   path,
   mdFiles,
   onOpen,
+  imageUrl,
   compact = false,
 }: {
   text: string
@@ -33,6 +34,8 @@ function MarkdownViewInner({
   /** 프로젝트의 .md 파일 경로들 (위키링크를 찾을 때 쓴다) */
   mdFiles: string[]
   onOpen: (path: string) => void
+  /** 문서 속 상대 경로 그림(![](images/a.png))의 주소. 없으면 그림 대신 이름만 보인다 (대화 등) */
+  imageUrl?: (path: string) => string
   /** 대화의 답처럼 짧은 글: 제목을 작게, 간격을 좁게 (T-9) */
   compact?: boolean
 }) {
@@ -91,7 +94,13 @@ function MarkdownViewInner({
       if (lang === 'mermaid') return <MermaidView code={text} />
       return <CodeView code={text} lang={lang ?? 'text'} numbers={false} />
     },
-    img: ({ alt }) => <span className="text-gray-500">[그림: {alt || '이름 없음'}]</span>,
+    img: ({ alt, src }) => {
+      // 이 프로젝트 안의 상대 경로 그림만 보인다. 바깥 주소는 불러오지 않는다 —
+      // 이 PC 안에서만 도는 대시보드가 문서를 열었다고 밖으로 요청을 내보내지 않게
+      const rel = typeof src === 'string' && !/^([a-z]+:|\/|#)/i.test(src) ? safeDecode(src) : null
+      if (rel == null || !imageUrl) return <span className="text-gray-500">[그림: {alt || '이름 없음'}]</span>
+      return <DocImage src={imageUrl(joinPath(dirOf(path), rel))} alt={alt ?? ''} />
+    },
     a: ({ href = '', children }) => {
       const internal = href.startsWith('wikilink:') || (!/^[a-z]+:/i.test(href) && /\.md(#.*)?$/i.test(href))
       if (internal) {
@@ -113,7 +122,7 @@ function MarkdownViewInner({
       )
     },
     }
-  }, [s, byName, path, mdFiles, onOpen])
+  }, [s, byName, path, mdFiles, onOpen, imageUrl])
 
   return (
     <div className={s.root}>
@@ -215,6 +224,13 @@ function toLinks(body: string): string {
 }
 
 /** 퍼센트 인코딩을 푼다. 깨진 주소(a%FF.md)면 null — 그대로 풀면 예외로 화면 전체가 하얗게 됐다. */
+/** 문서 속 그림. 못 불러오면(없음 · 너무 큼 · 폴더 밖) 이름만 남긴다 */
+function DocImage({ src, alt }: { src: string; alt: string }) {
+  const [broken, setBroken] = useState(false)
+  if (broken) return <span className="text-gray-500">[그림을 열지 못함: {alt || src}]</span>
+  return <img src={src} alt={alt} onError={() => setBroken(true)} className="my-2 inline-block max-w-full rounded" />
+}
+
 function safeDecode(value: string): string | null {
   try {
     return decodeURIComponent(value)

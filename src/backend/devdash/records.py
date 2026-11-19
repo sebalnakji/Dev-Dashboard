@@ -446,19 +446,53 @@ READ_LIMIT = 1024 * 1024
 """[파일] 보기에서 내용을 보여 줄 파일 크기 상한 (바이트). 문서를 읽으려는 것이라 넉넉하다."""
 
 
-def read_file(key: str, path: str) -> dict:
-    """[파일] 보기에서 고른 문서의 내용 (T-4). 등록된 프로젝트 폴더 안의, 상한 이하 UTF-8 글 파일만.
+IMAGE_LIMIT = 10 * 1024 * 1024
+"""[파일] 보기 · 문서 속 그림 크기 상한 (바이트). 화면 캡처는 넉넉히 들어가고,
+수백 MB 를 잘못 눌러도 브라우저가 멈추지 않게 (사용자 결정)."""
+
+IMAGE_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+    ".ico": "image/x-icon",
+}
+
+
+def _project_file(key: str, path: str) -> str:
+    """화면이 보낸 저장소 기준 경로를 실제 파일 경로로.
+    폴더 밖이면 ValueError, 없으면 FileNotFoundError.
 
     화면이 보낸 경로를 그대로 믿지 않는다 — '..' · 절대 경로 · 정션으로 폴더 밖을 가리키면
     실제 경로를 풀어 비교해 거절한다. 이 PC 에서만 열리는 화면이지만, 아무 파일이나 읽어 주는
-    통로가 되지 않게.
-    """
+    통로가 되지 않게."""
     root = project(key)["root"]
     full = os.path.realpath(os.path.join(root, path))
     if not store._under(store.same(full), store.same(root)) or store.same(full) == store.same(root):
         raise ValueError("프로젝트 폴더 밖의 파일은 열 수 없습니다")
     if not os.path.isfile(full):
         raise FileNotFoundError(f"파일이 없습니다: {path}")
+    return full
+
+
+def read_image(key: str, path: str) -> tuple[bytes, str]:
+    """[파일] 보기 · 문서 속 그림 (내용, Content-Type).
+    폴더 밖 · 상한 초과 · 그림이 아니면 ValueError."""
+    full = _project_file(key, path)
+    kind = IMAGE_TYPES.get(os.path.splitext(full)[1].lower())
+    if kind is None:
+        raise ValueError("그림 파일(png · jpg · gif · webp · svg · ico)이 아닙니다")
+    if os.path.getsize(full) > IMAGE_LIMIT:
+        raise ValueError(f"그림이 커서 열지 않습니다 ({IMAGE_LIMIT // (1024 * 1024)}MB 넘음)")
+    with open(full, "rb") as f:
+        return f.read(), kind
+
+
+def read_file(key: str, path: str) -> dict:
+    """[파일] 보기에서 고른 문서의 내용. 등록된 프로젝트 폴더 안의, 상한 이하 UTF-8 글 파일만."""
+    full = _project_file(key, path)
     if os.path.getsize(full) > READ_LIMIT:
         raise ValueError(f"파일이 커서 열지 않습니다 ({READ_LIMIT // 1024}KB 넘음)")
     try:

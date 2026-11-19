@@ -814,3 +814,48 @@ def test_없거나_크거나_글이_아닌_파일은_이유를_알린다(client,
     (env["repo"] / "big.md").write_text("12345", encoding="utf-8")
     r = client.get(f"/api/projects/{key}/file", params={"path": "big.md"})
     assert r.status_code == 409 and "커서" in r.json()["error"]
+
+
+# --- 그림 파일 ---
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+
+
+@pytest.mark.parametrize(
+    ("name", "kind"),
+    [
+        ("a.png", "image/png"),
+        ("사진.JPG", "image/jpeg"),
+        ("b.svg", "image/svg+xml"),
+        ("c.ico", "image/x-icon"),
+    ],
+)
+def test_그림은_형식에_맞는_Content_Type_과_보안_머리말로_준다(client, env, name, kind):
+    key = add(client, env)
+    (env["repo"] / "images").mkdir()
+    (env["repo"] / "images" / name).write_bytes(PNG)
+    r = client.get(f"/api/projects/{key}/image", params={"path": f"images/{name}"})
+    assert r.status_code == 200 and r.content == PNG
+    assert r.headers["content-type"].startswith(kind)
+    assert r.headers["x-content-type-options"] == "nosniff"
+    # svg 를 주소창으로 직접 열어도 스크립트가 돌지 않게
+    assert "sandbox" in r.headers["content-security-policy"]
+
+
+@pytest.mark.parametrize("path", ["../other/x.png", r"C:\Windows\win.ini", ""])
+def test_그림도_프로젝트_폴더_밖은_열지_않는다(client, env, path):
+    key = add(client, env)
+    (env["other"] / "x.png").write_bytes(PNG)
+    r = client.get(f"/api/projects/{key}/image", params={"path": path})
+    assert r.status_code == 409 and "밖의 파일" in r.json()["error"]
+
+
+def test_그림이_아니거나_크거나_없으면_이유를_알린다(client, env, monkeypatch):
+    key = add(client, env)
+    r = client.get(f"/api/projects/{key}/image", params={"path": "src/a.py"})
+    assert r.status_code == 409 and "그림 파일" in r.json()["error"]
+    assert client.get(f"/api/projects/{key}/image", params={"path": "없음.png"}).status_code == 404
+    (env["repo"] / "big.png").write_bytes(PNG)
+    monkeypatch.setattr(records, "IMAGE_LIMIT", 4)
+    r = client.get(f"/api/projects/{key}/image", params={"path": "big.png"})
+    assert r.status_code == 409 and "커서" in r.json()["error"]

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 
-import { fetchFile, fetchFileHistory, fetchRemote } from '../api/client'
+import { fetchFile, fetchFileHistory, fetchRemote, imageUrl } from '../api/client'
 import { BUTTON, WARNING, agoIso, reasonOf } from '../components/styles'
 import { useNow } from '../hooks/useNow'
 import type { FileContent, FileHistoryRow, ProjectRow, TaskRow } from '../types'
@@ -411,7 +411,37 @@ function FilePane({
   )
 }
 
-/** 파일 내용을 읽어 .md 는 MarkdownView, 그 밖은 CodeView 로. 글이 아닌 파일은 이유를 보인다. */
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|ico)$/i
+
+/**
+ * 그림 파일. 받아서 보인다 — <img> 에 주소를 바로 주면 거절 이유(너무 큼 등)를 알 수 없어서.
+ * svg 도 <img> 로만 그려 그 안의 스크립트가 돌지 않는다 (화면에 끼워 넣지 않는다).
+ */
+function ImageView({ projectKey, path }: { projectKey: string; path: string }) {
+  const [state, setState] = useState<{ path: string; url?: string; error?: string } | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    let url: string | undefined
+    fetch(imageUrl(projectKey, path))
+      .then(async (r) => {
+        if (!r.ok) throw new Error(await r.text())
+        url = URL.createObjectURL(await r.blob())
+        if (alive) setState({ path, url })
+      })
+      .catch((e) => alive && setState({ path, error: reasonOf(e) }))
+    return () => {
+      alive = false
+      if (url) URL.revokeObjectURL(url)
+    }
+  }, [projectKey, path])
+
+  if (state?.path !== path) return <Loading />
+  if (state.error) return <p className={WARNING}>{state.error}</p>
+  return <img src={state.url} alt={path} className="max-w-full rounded border border-edge" />
+}
+
+/** 파일 내용을 읽어 그림은 ImageView, .md 는 MarkdownView, 그 밖은 CodeView 로. 글이 아닌 파일은 이유를 보인다. */
 function FileContentView({
   projectKey,
   path,
@@ -425,8 +455,12 @@ function FileContentView({
 }) {
   const [content, setContent] = useState<FileContent | null>(null)
   const [error, setError] = useState<{ path: string; message: string } | null>(null)
+  const isImage = IMAGE_EXT.test(path)
+  // 문서 속 상대 경로 그림의 주소. 고정해서 넘긴다 — 바뀌면 마크다운을 통째로 다시 그린다
+  const docImage = useCallback((p: string) => imageUrl(projectKey, p), [projectKey])
 
   useEffect(() => {
+    if (isImage) return
     let alive = true
     fetchFile(projectKey, path)
       .then((c) => alive && setContent(c))
@@ -434,12 +468,13 @@ function FileContentView({
     return () => {
       alive = false
     }
-  }, [projectKey, path])
+  }, [projectKey, path, isImage])
 
+  if (isImage) return <ImageView projectKey={projectKey} path={path} />
   if (error?.path === path) return <p className={WARNING}>{error.message}</p>
   if (content?.path !== path) return <Loading />
   if (/\.md$/i.test(path)) {
-    return <MarkdownView text={content.text} path={path} mdFiles={mdFiles} onOpen={onOpen} />
+    return <MarkdownView text={content.text} path={path} mdFiles={mdFiles} onOpen={onOpen} imageUrl={docImage} />
   }
   return <CodeView code={content.text} lang={langOfPath(path)} />
 }

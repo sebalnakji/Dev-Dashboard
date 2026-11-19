@@ -174,6 +174,9 @@ export const renameProject = (key: string, name: string) => send<ProjectRow>('PA
 export const unregisterProject = (key: string) => send<{ ok?: true }>('DELETE', project(key))
 export const fetchFileHistory = (key: string, path: string) =>
   getJson<FileHistoryRow[]>(`${project(key)}/file-history?path=${encodeURIComponent(path)}`)
+/** 그림 파일 주소 (<img> 가 바로 부른다). 폴더 밖 · 10MB 넘음 · 그림이 아니면 서버가 409 */
+export const imageUrl = (key: string, path: string) =>
+  `${project(key)}/image?path=${encodeURIComponent(path)}`
 export const fetchFile = (key: string, path: string) =>
   getJson<FileContent>(`${project(key)}/file?path=${encodeURIComponent(path)}`)
 /** 세션의 최근 질문 limit 개와 답 (세션 목록에 있는 세션만). */
