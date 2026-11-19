@@ -106,8 +106,10 @@ def edit(env, capsys, sid: str, path: Path | None = None) -> None:
 
 def test_키는_경로를_폴더_이름으로_바꾸고_지문을_붙인다():
     # 없는 경로라 이 PC 의 폴더 표기에 기대지 않는다
-    key = store.project_key("c:\\__devdash_none__\\Dev")
-    prefix = "C--__devdash_none__-Dev-"
+    if sys.platform == "win32":
+        key, prefix = store.project_key("c:\\__devdash_none__\\Dev"), "C--__devdash_none__-Dev-"
+    else:
+        key, prefix = store.project_key("/__devdash_none__/Dev"), "-__devdash_none__-Dev-"
     assert key.startswith(prefix) and len(key) == len(prefix) + 6
 
 
@@ -116,6 +118,7 @@ def test_글자만_바꾸면_같아지는_경로도_키가_다르다():
     assert len({store.project_key(p) for p in ("C:/a b", "C:/a-b", "C:/a/b")}) == 3
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="대소문자를 가리지 않는 윈도우 폴더 이름")
 def test_대소문자만_다른_경로는_같은_키다(tmp_path):
     """앞부분을 입력 표기로 만들면 지문은 같은데 폴더가 둘로 갈린다 (시험이 잡은 버그)."""
     (tmp_path / "Projects" / "Dev").mkdir(parents=True)
@@ -488,13 +491,21 @@ def test_없는_경로도_대소문자를_가리지_않고_비교한다():
     assert store.same("C:/__devdash_none__/Folder") == store.same("c:/__devdash_none__/folder")
 
 
+def link_dir(target: Path, link: Path) -> None:
+    """폴더 링크: 윈도우는 정션(관리자 권한 없이 된다), 그 밖은 심볼릭 링크."""
+    if sys.platform == "win32":
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+    else:
+        os.symlink(target, link, target_is_directory=True)
+
+
 def test_정션으로_들어온_worktree_파일도_경로를_잃지_않는다(env, tmp_path):
     """git 이 준 경로 길이로 다른 표기의 경로를 자르면 빈 경로가 됐다 (Fable 재현)."""
-    import _winapi
-
     store.register(env["repo"])
     link = tmp_path / "j"
-    _winapi.CreateJunction(str(env["wt"]), str(link))
+    link_dir(env["wt"], link)
     where = store.relative_in_project(str(link / "src" / "a.py"), env["root"])
     assert where == ("src/a.py", "wt-outside")
 
@@ -521,7 +532,9 @@ def test_여러_프로세스가_동시에_이름을_받아도_순번이_겹치�
 
 def test_변경_기록도_이상한_글자를_견딘다(env, capsys):
     store.register(env["repo"])
-    edit(env, capsys, "s\ud800", env["repo"] / "src" / "\ud800.py")
+    # 짝 없는 서로게이트: 윈도우는 파일 이름에 올 수 있고, 리눅스는 UTF-8 이 아닌 바이트가 이렇게 풀린다
+    odd = "\ud800" if sys.platform == "win32" else "\udcff"
+    edit(env, capsys, f"s{odd}", env["repo"] / "src" / f"{odd}.py")
     assert len(store.read_activity(key_of(env))) == 1
 
 

@@ -7,6 +7,7 @@ DEVDASH_HOME 과 세션 배치 경로를 임시 폴더로 바꾼다. git 이력 
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -605,7 +606,10 @@ def test_동료가_올린_커밋은_갱신으로_받아_아직_안_받음으로_
     assert fetched["error"] is None and fetched["at"]
     out = client.get(f"/api/projects/{key}/git").json()
     assert out["upstream"].startswith("origin/") and out["fetch"]["error"] is None
-    mine, theirs = out["commits"][1], out["commits"][0]
+    # 같은 초에 만든 커밋 둘은 시각 순서가 정해지지 않는다 — 자리 대신 제목으로 고른다
+    # (윈도우에서 가끔, 리눅스에서는 늘 실패하던 원인)
+    by_subject = {c["subject"]: c for c in out["commits"]}
+    mine, theirs = by_subject["처음 [T-1]"], by_subject["동료 작업"]
     assert (theirs["author"], theirs["subject"], theirs["incoming"]) == ("동료", "동료 작업", True)
     assert mine["incoming"] is False
     # 받기 전에도 커밋 내용을 볼 수 있다 (fetch 가 커밋을 이미 가져왔다)
@@ -638,7 +642,11 @@ def test_작업용_복사본에서_일하는_세션도_원래_저장소로_모�
 
 @pytest.mark.parametrize(
     ("given", "error"),
-    [("relative/path", "전체 경로"), ("", "전체 경로"), ("C:\\없는\\폴더", "폴더가 없습니다")],
+    [
+        ("relative/path", "전체 경로"),
+        ("", "전체 경로"),
+        ("C:\\없는\\폴더" if os.name == "nt" else "/없는/폴더", "폴더가 없습니다"),
+    ],
 )
 def test_추가할_경로는_실제로_있는_전체_경로여야_한다(client, given, error):
     r = client.post("/api/projects", json={"root": given})
@@ -860,8 +868,13 @@ def test_프로젝트_안의_글_파일은_내용을_준다(client, env):
     }
 
 
+WINDOWS_ONLY = pytest.mark.skipif(os.name != "nt", reason="윈도우만 \\ 가 경로 구분 기호다")
+OUTSIDE_ABS = r"C:\Windows\win.ini" if os.name == "nt" else "/etc/hostname"
+
+
 @pytest.mark.parametrize(
-    "path", ["../other/x.md", r"..\other\x.md", r"C:\Windows\win.ini", "", "."]
+    "path",
+    ["../other/x.md", pytest.param(r"..\other\x.md", marks=WINDOWS_ONLY), OUTSIDE_ABS, "", "."],
 )
 def test_프로젝트_폴더_밖은_열지_않는다(client, env, path):
     key = add(client, env)
@@ -871,11 +884,14 @@ def test_프로젝트_폴더_밖은_열지_않는다(client, env, path):
 
 
 def test_정션으로_밖을_가리켜도_열지_않는다(client, env):
-    import _winapi
-
     key = add(client, env)
     (env["other"] / "x.md").write_text("비밀", encoding="utf-8")
-    _winapi.CreateJunction(str(env["other"]), str(env["repo"] / "j"))
+    if os.name == "nt":
+        import _winapi
+
+        _winapi.CreateJunction(str(env["other"]), str(env["repo"] / "j"))
+    else:
+        os.symlink(env["other"], env["repo"] / "j", target_is_directory=True)
     r = client.get(f"/api/projects/{key}/file", params={"path": "j/x.md"})
     assert r.status_code == 409
 
@@ -920,7 +936,7 @@ def test_그림은_형식에_맞는_Content_Type_과_보안_머리말로_준다(
     assert "sandbox" in r.headers["content-security-policy"]
 
 
-@pytest.mark.parametrize("path", ["../other/x.png", r"C:\Windows\win.ini", ""])
+@pytest.mark.parametrize("path", ["../other/x.png", OUTSIDE_ABS, ""])
 def test_그림도_프로젝트_폴더_밖은_열지_않는다(client, env, path):
     key = add(client, env)
     (env["other"] / "x.png").write_bytes(PNG)
