@@ -217,3 +217,25 @@ def test_세션_목록에_있는_세션만_대화를_준다(tmp_path, log, monke
     assert r.status_code == 200 and r.json()["messages"][-1]["text"] == "마지막 답"
     other = "99999999-2222-3333-4444-555555555555"
     assert client.get(f"/api/claude/sessions/{other}/chat").status_code == 404
+
+
+def test_질문과_답에_그_차례_번호가_붙는다(tmp_path):
+    """작업 상자가 훅의 변경 기록 · 스냅샷과 맞춰 볼 번호 (질문 줄의 promptId)."""
+    path = write(
+        tmp_path / "p" / f"{SID}.jsonl",
+        [
+            user("하나", promptId="p1"),
+            answer(text("답 1"), tool("Edit")),
+            result(),
+            answer(text("답 1 끝")),
+            user("둘", promptId="p2"),
+            answer(text("답 2")),
+        ],
+    )
+    r = chat.chat(path, limit=10)
+    assert [(m["role"], m["prompt"]) for m in r["messages"]] == [
+        ("user", "p1"),
+        ("assistant", "p1"),
+        ("user", "p2"),
+        ("assistant", "p2"),
+    ]

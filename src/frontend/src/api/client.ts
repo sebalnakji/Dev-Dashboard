@@ -179,6 +179,15 @@ export const imageUrl = (key: string, path: string) =>
   `${project(key)}/image?path=${encodeURIComponent(path)}`
 export const fetchFile = (key: string, path: string) =>
   getJson<FileContent>(`${project(key)}/file?path=${encodeURIComponent(path)}`)
-/** 세션의 최근 질문 limit 개와 답 (세션 목록에 있는 세션만). */
-export const fetchChat = (sessionId: string, limit: number) =>
-  getJson<ChatResponse>(`/api/claude/sessions/${encodeURIComponent(sessionId)}/chat?limit=${limit}`)
+/** 세션의 최근 질문 limit 개와 답 (세션 목록에 있는 세션만).
+ * projectKey 를 주면 답마다 그 차례에 이 프로젝트에서 고친 파일(작업 상자)이 붙는다. */
+export function fetchChat(sessionId: string, limit: number, projectKey?: string) {
+  const q = new URLSearchParams({ limit: String(limit) })
+  if (projectKey) q.set('project', projectKey)
+  return getJson<ChatResponse>(`/api/claude/sessions/${encodeURIComponent(sessionId)}/chat?${q}`)
+}
+/** 대화 한 차례가 파일 하나를 어떻게 바꿨나 (그 차례의 스냅샷: 처음 고치기 직전 → 마지막으로 고친 직후) */
+export const fetchTurnDiff = (key: string, prompt: string, path: string, full: boolean) =>
+  getJson<TaskFileDiff>(
+    `${project(key)}/turns/${encodeURIComponent(prompt)}/diff?${new URLSearchParams({ path, full: String(full) })}`,
+  )

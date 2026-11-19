@@ -111,8 +111,11 @@ def _question(entry: dict) -> str | None:
 def chat(path: Path, limit: int = 10) -> dict:
     """최근 질문 limit 개와 그 답들 (시간 순). 답의 글은 이어 붙이고 도구 사용은 이름별로 센다.
 
-    {"messages": [{"role": "user"|"assistant", "text", "at", "tools"?}],
+    {"messages": [{"role": "user"|"assistant", "text", "at", "prompt", "tools"?}],
      "more": 더 이전 질문이 있나}
+
+    prompt 는 그 차례(질문 하나와 그 답)의 번호 — 훅이 남긴 변경 기록 · 스냅샷의 prompt 와 같아
+    작업 상자를 붙일 때 쓴다 (records.chat_work).
     """
     limit = max(1, min(limit, MAX_LIMIT))
     out: list[dict] = []  # 거꾸로 모은다
@@ -120,7 +123,7 @@ def chat(path: Path, limit: int = 10) -> dict:
     asked = 0
     more = False
 
-    def flush() -> None:
+    def flush(prompt: str | None = None) -> None:
         nonlocal answer
         if answer and (answer["parts"] or answer["tools"]):
             out.append(
@@ -128,6 +131,7 @@ def chat(path: Path, limit: int = 10) -> dict:
                     "role": "assistant",
                     "text": "\n\n".join(reversed(answer["parts"])).strip(),
                     "at": answer["at"],
+                    "prompt": prompt,
                     "tools": dict(answer["tools"]),
                 }
             )
@@ -160,8 +164,11 @@ def chat(path: Path, limit: int = 10) -> dict:
         question = _question(entry)
         if question is None:
             continue
-        flush()
-        out.append({"role": "user", "text": question, "at": entry.get("timestamp")})
+        prompt = entry.get("promptId")
+        flush(prompt)  # 거꾸로 읽으므로 이 질문이 방금 모은 답의 질문이다
+        out.append(
+            {"role": "user", "text": question, "at": entry.get("timestamp"), "prompt": prompt}
+        )
         asked += 1
     if asked < limit:
         flush()  # 파일 맨 앞까지 왔으면 첫 질문 앞의 답(있다면)도 넣는다

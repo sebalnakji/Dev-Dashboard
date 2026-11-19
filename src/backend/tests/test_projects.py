@@ -480,7 +480,9 @@ def test_작업의_바뀐_파일은_그_작업_커밋_전후로_비교한다(cli
 snap = records.snap
 
 
-def snapshots(key: str, path: str, task: str, *steps: tuple[str, str | None]) -> None:
+def snapshots(
+    key: str, path: str, task: str, *steps: tuple[str, str | None], prompt: str = "p"
+) -> None:
     """훅이 남겼을 스냅샷을 차례로 적는다. steps: ("before" | "after", 내용 또는 None(없던 파일))."""
     project = store.project_dir(key)
     log = snap.log_path(project)
@@ -491,7 +493,7 @@ def snapshots(key: str, path: str, task: str, *steps: tuple[str, str | None]) ->
                 if text == "unknown"
                 else (snap.put(project, text.encode()) if text is not None else None)
             )
-            entry = {"task": task, "path": path, "when": when, "blob": blob, "prompt": "p"}
+            entry = {"task": task, "path": path, "when": when, "blob": blob, "prompt": prompt}
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
@@ -935,3 +937,63 @@ def test_그림이_아니거나_크거나_없으면_이유를_알린다(client, 
     monkeypatch.setattr(records, "IMAGE_LIMIT", 4)
     r = client.get(f"/api/projects/{key}/image", params={"path": "big.png"})
     assert r.status_code == 409 and "커서" in r.json()["error"]
+
+
+def chat_messages(*prompts: str) -> list[dict]:
+    out = []
+    for p in prompts:
+        out += [
+            {"role": "user", "text": "q", "at": None, "prompt": p},
+            {"role": "assistant", "text": "a", "at": None, "prompt": p},
+        ]
+    return out
+
+
+def test_대화의_답마다_그_차례에_고친_파일을_붙인다(client, env):
+    """원본은 훅의 변경 기록과 스냅샷. 할 일 · 줄 수 · 셸 · 하위 작업 표시, 그 차례의 비교."""
+    key = add(client, env)
+    write_task(key, 4, "doing", "s")
+    for row in [
+        {"op": "modify", "path": "src/a.py", "task": "T-4", "prompt": "p1", "tool": "Edit"},
+        {"op": "create", "path": "src/new.py", "task": "T-4", "prompt": "p1", "agent": "x"},
+        {"op": "modify", "path": "src/a.py", "task": "T-4", "prompt": "p1", "tool": "Bash"},
+        {"op": "modify", "path": "src/old.py", "task": None, "prompt": "p2", "tool": "Edit"},
+        {"op": "modify", "path": "src/a.py", "task": "T-4", "prompt": "다른 대화", "tool": "Edit"},
+    ]:
+        store.append_activity(key, row)
+    snapshots(key, "src/a.py", "T-4", ("before", "a\nb\n"), ("after", "a\nB\nc\n"), prompt="p1")
+    snapshots(key, "src/new.py", "T-4", ("before", None), ("after", "새\n"), prompt="p1")
+
+    messages = chat_messages("p1", "p2", "p3")
+    records.chat_work(key, messages)
+    w1, w2 = messages[1]["work"], messages[3]["work"]
+    assert "work" not in messages[0] and "work" not in messages[5]  # 질문 · 고친 것 없는 차례
+    assert w1["task"] == {"number": 4, "title": records.task_list(key)[0]["title"]}
+    a, new = w1["files"]
+    assert (a["path"], a["op"], a["added"], a["deleted"], a["diff"]) == (
+        "src/a.py",
+        "edit",
+        2,
+        1,
+        True,
+    )
+    assert a["shell"] and not a["agent"]
+    assert (new["op"], new["added"], new["agent"], new["shell"]) == ("create", 1, True, False)
+    # 스냅샷이 없는 옛 차례: 파일 이름만, 비교는 없다
+    assert w2["task"] is None
+    assert w2["files"] == [
+        {
+            "path": "src/old.py",
+            "op": "edit",
+            "added": None,
+            "deleted": None,
+            "diff": False,
+            "shell": False,
+            "agent": False,
+        }
+    ]
+
+    d = client.get(f"/api/projects/{key}/turns/p1/diff", params={"path": "src/a.py"}).json()
+    assert d["hunks"][0]["lines"] == [[" ", "a"], ["-", "b"], ["+", "B"], ["+", "c"]]
+    r = client.get(f"/api/projects/{key}/turns/p2/diff", params={"path": "src/old.py"})
+    assert r.status_code == 404

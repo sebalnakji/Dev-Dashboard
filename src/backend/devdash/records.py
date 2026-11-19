@@ -901,6 +901,96 @@ def snapshot_diff(key: str, before: str | None, after: str | None, full: bool = 
     return {**found, **gitdiff.parse(out), "tooLarge": False}
 
 
+_numstat_cache: dict[tuple[str, str | None, str | None], tuple[int | None, int | None]] = {}
+
+
+def _numstat(key: str, before: str | None, after: str | None) -> tuple[int | None, int | None]:
+    """두 스냅샷 사이 (더한 줄, 지운 줄). 글이 아니면 (None, None). 같은 쌍은 기억해 둔다 —
+    대화 화면이 몇 초마다 다시 묻는다."""
+    hit = _numstat_cache.get((key, before, after))
+    if hit is not None:
+        return hit
+    project_dir = store.project_dir(key)
+    empty = snap.put(project_dir, b"")
+    a = empty if before in (None, "unknown") else before
+    out = snap._git(project_dir, "diff", "--numstat", a, after or empty).decode("utf-8", "replace")
+    parts = out.split("\t")
+    value = (
+        (int(parts[0]), int(parts[1]))
+        if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit()
+        else (0, 0)
+        if not out.strip()
+        else (None, None)
+    )
+    _numstat_cache[(key, before, after)] = value
+    return value
+
+
+def chat_work(key: str, messages: list[dict]) -> None:
+    """대화의 답마다 그 차례에 고친 파일(작업 상자)을 붙인다 — messages 를 고친다.
+
+    원본은 훅의 변경 기록(어느 파일 · 어느 할 일)과 스냅샷(비교 · 줄 수)이다. 대화 기록의
+    도구 결과는 Claude 내부 형식이라 쓰지 않는다. 스냅샷이 없는 옛 차례(이 기능 전)는 파일
+    이름만 보이고 비교는 없다 (diff False).
+
+    work = {"prompt", "task": {number, title} | None,
+            "files": [{path, op: create|edit, added, deleted, diff, shell, agent}]}
+    """
+    prompts = {m.get("prompt") for m in messages if m.get("role") == "assistant"} - {None}
+    if not prompts:
+        return
+    acts = [r for r in _activity(key) if r.get("prompt") in prompts and r.get("path")]
+    if not acts:
+        return
+    snaps = [e for e in snap.entries(store.project_dir(key)) if e.get("prompt") in prompts]
+    titles = {t["number"]: t["title"] for t in task_list(key)}
+    for m in messages:
+        prompt = m.get("prompt")
+        mine = (
+            [r for r in acts if r.get("prompt") == prompt] if m.get("role") == "assistant" else []
+        )
+        if not mine:
+            continue
+        files = []
+        for path in dict.fromkeys(r["path"] for r in mine):
+            rows = [r for r in mine if r["path"] == path]
+            pair = snap.pair(
+                snaps, lambda e, p=path, q=prompt: e.get("prompt") == q and e.get("path") == p
+            )
+            added = deleted = None
+            if pair is not None:
+                added, deleted = _numstat(key, *pair)
+            files.append(
+                {
+                    "path": path,
+                    "op": "create" if any(r.get("op") == "create" for r in rows) else "edit",
+                    "added": added,
+                    "deleted": deleted,
+                    "diff": pair is not None,
+                    "shell": any(r.get("tool") == "Bash" for r in rows),
+                    # 하위 작업(서브에이전트)만 고친 파일 — 화면이 작게 보인다
+                    "agent": all(r.get("agent") for r in rows),
+                }
+            )
+        ref = next((r["task"] for r in mine if r.get("task")), None)
+        number = int(ref[2:]) if ref and re.fullmatch(r"T-\d+", ref) else None
+        m["work"] = {
+            "prompt": prompt,
+            "task": {"number": number, "title": titles.get(number, "")} if number else None,
+            "files": files,
+        }
+
+
+def turn_diff(key: str, prompt: str, path: str, full: bool = False) -> dict | None:
+    """대화 한 차례가 파일 하나를 어떻게 바꿨나: 그 차례에 처음 고치기 직전 → 마지막으로 고친 직후.
+    그 차례의 스냅샷이 없으면 None."""
+    pair = snap.pair(
+        snap.entries(store.project_dir(key)),
+        lambda e: e.get("prompt") == prompt and e.get("path") == path,
+    )
+    return snapshot_diff(key, *pair, full=full) if pair is not None else None
+
+
 def task_diff(key: str, number: int, path: str, full: bool = False) -> dict:
     """작업 문서의 '이 작업에서 바뀐 파일'을 누르면 보이는 이전 · 이후.
 

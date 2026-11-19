@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { fetchFile, fetchFileHistory, fetchRemote, imageUrl } from '../api/client'
 import { BUTTON, WARNING, agoIso, reasonOf } from '../components/styles'
@@ -27,12 +27,78 @@ import { defaultTask, useProjectData, useTaskDoc, type Slot } from './useProject
  * 보기끼리 잇는다: 커밋의 [T-12] · 파일 이력의 할 일을 누르면 [할 일] 보기로 넘어가 그 문서가 열린다.
  */
 export function ProjectView({ project, offline }: { project: ProjectRow; offline: boolean }) {
-  const [view, setView] = useState<ProjectViewName>(lastView)
-  const [chosenFile, setChosenFile] = useState<string | null>(null)
-  const [selectedPath, setSelectedPath] = useState<string | null>(null)
-  const [selectedSession, setSelectedSession] = useState<string | null>(null)
-  const [selectedCommit, setSelectedCommit] = useState<string | null>(null)
+  // 뒤로 가기로 이 프로젝트에 돌아왔으면 그때 보던 화면에서 시작한다 (T-28)
+  const [initial] = useState(() => savedNav(project.key))
+  const [view, setView] = useState<ProjectViewName>(initial?.view ?? lastView)
+  const [chosenFile, setChosenFile] = useState<string | null>(initial?.chosenFile ?? null)
+  const [selectedPath, setSelectedPath] = useState<string | null>(initial?.selectedPath ?? null)
+  const [selectedSession, setSelectedSession] = useState<string | null>(initial?.selectedSession ?? null)
+  const [selectedCommit, setSelectedCommit] = useState<string | null>(initial?.selectedCommit ?? null)
+  // 뒤로 가기로 돌아온 화면의 스크롤 위치 — 그 화면이 그려진 뒤 맞춘다. 사람이 다시 옮기면 비운다
+  const [restore, setRestore] = useState<{ view: ProjectViewName; scroll: number } | null>(
+    initial ? { view: initial.view, scroll: initial.scroll } : null,
+  )
   const [picking, setPicking] = useState(false)
+
+  // 지금 화면 — go() 가 고정된 함수라서(아래 openFile 등이 바뀌지 않게) 늘 최신 값을 여기서 읽는다.
+  // 그린 직후에 적어 둔다 (go 는 클릭 때만 불리니 그때는 늘 최신이다)
+  const here = useRef<Omit<Nav, 'scroll'>>({ key: project.key, view, chosenFile, selectedPath, selectedSession, selectedCommit })
+  useLayoutEffect(() => {
+    here.current = { key: project.key, view, chosenFile, selectedPath, selectedSession, selectedCommit }
+  })
+
+  const apply = useCallback((n: Nav) => {
+    setView(n.view)
+    rememberView(n.view)
+    setChosenFile(n.chosenFile)
+    setSelectedPath(n.selectedPath)
+    setSelectedSession(n.selectedSession)
+    setSelectedCommit(n.selectedCommit)
+  }, [])
+
+  /**
+   * 사람이 누른 이동 (T-28): 보기 전환 · 항목 고르기 · 다른 보기로 넘어가기. 브라우저 방문 기록에 한 칸 남겨
+   * 뒤로 가기를 누르면 바로 전 화면(보기 · 고른 것 · 스크롤 위치)으로 돌아온다. 같은 화면이면 남기지 않는다.
+   * 주소(해시)는 프로젝트까지만 쓰고, 화면 상태는 방문 기록의 state 에 둔다.
+   * 처음 열 때 기본 항목을 스스로 고르는 것은 이동이 아니라서 남기지 않는다.
+   */
+  const go = useCallback(
+    (patch: Partial<Omit<Nav, 'key' | 'scroll'>>) => {
+      const from: Nav = { ...here.current, scroll: rightScroll() }
+      const to: Nav = { ...from, ...patch, scroll: 0 }
+      if (sameScreen(from, to)) return
+      const state = (window.history.state ?? {}) as Record<string, unknown>
+      window.history.replaceState({ ...state, [NAV]: from }, '') // 떠나는 화면에 스크롤 위치를 적어 둔다
+      window.history.pushState({ [NAV]: to }, '')
+      setRestore(null)
+      apply(to)
+    },
+    [apply],
+  )
+
+  // 뒤로 · 앞으로 가기: 방문 기록에 적어 둔 화면으로. 다른 프로젝트의 기록이면 주소(해시)가 바뀌어 화면이 새로 열린다
+  useEffect(() => {
+    const onPop = () => {
+      const n = savedNav(project.key)
+      if (!n) return
+      apply(n)
+      setRestore({ view: n.view, scroll: n.scroll })
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [project.key, apply])
+
+  // 돌아온 화면의 스크롤 위치 맞추기. 대화 보기는 대화가 그려진 뒤 ChatView 가 스스로 맞춘다.
+  // 다른 보기는 내용이 늦게 올 수 있어 몇 번 다시 맞춘다
+  useEffect(() => {
+    if (!restore || restore.view !== view || view === 'sessions') return
+    const set = () => {
+      const el = document.querySelector('[data-scroll]') as HTMLElement | null
+      if (el) el.scrollTop = restore.scroll
+    }
+    const timers = [0, 200, 600].map((ms) => window.setTimeout(set, ms))
+    return () => timers.forEach((t) => window.clearTimeout(t))
+  }, [restore, view])
   const { files, sessions, tasks, git, reload } = useProjectData(project.key)
 
   // [세션] 보기: 고르지 않았거나 고른 세션이 빠졌으면 (/clear 로 번호가 바뀐 경우 포함) 첫째를 연다
@@ -68,30 +134,24 @@ export function ProjectView({ project, offline }: { project: ProjectRow; offline
     [files.data],
   )
 
-  function show(next: ProjectViewName) {
-    setView(next)
-    rememberView(next)
-  }
   // 다른 보기에서 할 일 번호를 누르면 [할 일] 보기로 넘어가 연다 (같은 번호가 둘이면 목록 순 첫째)
   const openTask = useCallback(
     (ref: number | string) => {
       const n = typeof ref === 'number' ? ref : Number(ref.replace(/^T-/, ''))
       const hit = list?.find((t) => t.number === n)
       if (!hit) return
-      setChosenFile(hit.file)
-      setView('tasks')
-      rememberView('tasks')
+      go({ view: 'tasks', chosenFile: hit.file })
     },
-    [list],
+    [list, go],
   )
   // 정리 문서의 "이 작업에서 바뀐 파일"을 누르면 [파일] 보기로 넘어가 그 파일을 연다 (T-5).
   // 트리는 고른 파일을 품은 폴더를 펼치고 그 자리까지 스크롤한다 (FileTree)
   // 고정해 둔다: 대화의 마크다운(MarkdownView)이 이 함수를 받는데, 매번 새 함수면 매번 다시 그린다
-  const openFile = useCallback((path: string) => {
-    setSelectedPath(path)
-    setView('files')
-    rememberView('files')
-  }, [])
+  const openFile = useCallback((path: string) => go({ view: 'files', selectedPath: path }), [go])
+  const selectTask = useCallback((file: string) => go({ chosenFile: file }), [go])
+  const selectPath = useCallback((path: string) => go({ selectedPath: path }), [go])
+  const selectCommit = useCallback((hash: string) => go({ selectedCommit: hash }), [go])
+  const selectSession = useCallback((id: string) => go({ selectedSession: id }), [go])
 
   // [갱신]: 원격의 새 커밋을 받아 오고 목록을 다시 읽는다. 실패 이유는 목록의 fetch.error 로 보인다
   const refreshRemote = useCallback(async () => {
@@ -136,7 +196,7 @@ export function ProjectView({ project, offline }: { project: ProjectRow; offline
           <button
             key={t.name}
             type="button"
-            onClick={() => show(t.name)}
+            onClick={() => go({ view: t.name })}
             className={`flex cursor-pointer items-center gap-1.5 rounded-md px-3.5 py-1.5 text-[15px] ${
               view === t.name ? 'bg-btn font-semibold text-gray-100' : 'text-gray-400 hover:bg-hover hover:text-gray-200'
             }`}
@@ -158,7 +218,7 @@ export function ProjectView({ project, offline }: { project: ProjectRow; offline
         <Split
           left={
             <SlotView slot={tasks} offline={offline}>
-              {(t) => <TaskList tasks={t} selected={chosenFile} onSelect={setChosenFile} />}
+              {(t) => <TaskList tasks={t} selected={chosenFile} onSelect={selectTask} />}
             </SlotView>
           }
           right={
@@ -190,7 +250,7 @@ export function ProjectView({ project, offline }: { project: ProjectRow; offline
                   files={f.files}
                   highlight={highlight}
                   selected={selectedPath}
-                  onSelect={setSelectedPath}
+                  onSelect={selectPath}
                 />
               )}
             </SlotView>
@@ -202,7 +262,7 @@ export function ProjectView({ project, offline }: { project: ProjectRow; offline
                 path={selectedPath}
                 mdFiles={mdFiles}
                 tasks={list}
-                onSelect={setSelectedPath}
+                onSelect={selectPath}
                 onOpenTask={openTask}
               />
             )
@@ -220,7 +280,7 @@ export function ProjectView({ project, offline }: { project: ProjectRow; offline
                   projectKey={project.key}
                   git={g}
                   selected={selectedCommit}
-                  onSelect={setSelectedCommit}
+                  onSelect={selectCommit}
                   onRefresh={refreshRemote}
                 />
               )}
@@ -252,7 +312,7 @@ export function ProjectView({ project, offline }: { project: ProjectRow; offline
               </div>
               <SlotView slot={sessions} offline={offline}>
                 {(s) => (
-                  <SessionList sessions={s} selected={selectedSession} onSelect={setSelectedSession} onChanged={reload} />
+                  <SessionList sessions={s} selected={selectedSession} onSelect={selectSession} onChanged={reload} />
                 )}
               </SlotView>
             </>
@@ -263,9 +323,12 @@ export function ProjectView({ project, offline }: { project: ProjectRow; offline
               <ChatView
                 key={selectedSession}
                 sessionId={selectedSession}
+                projectKey={project.key}
                 working={sessionList?.find((s) => s.id === selectedSession)?.activity === 'working'}
                 mdFiles={mdFiles}
                 onOpenFile={openFile}
+                onOpenTask={openTask}
+                initialTop={restore?.view === 'sessions' ? restore.scroll : null}
               />
             )
           }
@@ -274,6 +337,41 @@ export function ProjectView({ project, offline }: { project: ProjectRow; offline
 
       {picking && <SessionPicker projectKey={project.key} onClose={() => setPicking(false)} onSaved={reload} />}
     </div>
+  )
+}
+
+/** 뒤로 가기용 화면 하나 (T-28). 브라우저 방문 기록의 state 에 넣는다 — 주소(해시)는 프로젝트까지만 쓴다. */
+interface Nav {
+  key: string
+  view: ProjectViewName
+  chosenFile: string | null
+  selectedPath: string | null
+  selectedSession: string | null
+  selectedCommit: string | null
+  /** 오른쪽 칸의 스크롤 위치 */
+  scroll: number
+}
+
+const NAV = 'devdashNav'
+
+/** 지금 방문 기록 칸에 적힌 이 프로젝트의 화면 (없거나 다른 프로젝트 것이면 null) */
+function savedNav(key: string): Nav | null {
+  const nav = (window.history.state as Record<string, unknown> | null)?.[NAV] as Nav | undefined
+  return nav && nav.key === key ? nav : null
+}
+
+/** 오른쪽 칸(보기마다 하나)의 스크롤 위치 */
+function rightScroll(): number {
+  return (document.querySelector('[data-scroll]') as HTMLElement | null)?.scrollTop ?? 0
+}
+
+function sameScreen(a: Nav, b: Nav): boolean {
+  return (
+    a.view === b.view &&
+    a.chosenFile === b.chosenFile &&
+    a.selectedPath === b.selectedPath &&
+    a.selectedSession === b.selectedSession &&
+    a.selectedCommit === b.selectedCommit
   )
 }
 

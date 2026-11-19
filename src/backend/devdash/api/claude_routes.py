@@ -64,16 +64,22 @@ def list_sessions(request: Request) -> dict:
 
 
 @router.get("/claude/sessions/{key}/chat")
-def session_chat(request: Request, key: str, limit: int = 10) -> JSONResponse:
+def session_chat(
+    request: Request, key: str, limit: int = 10, project: str | None = None
+) -> JSONResponse:
     """세션의 최근 질문 limit 개와 답. key 는 목록 번호(백그라운드) 또는 대화 번호(대화형).
-    지금 목록에 보이는 세션만 — 아무 대화 기록이나 읽어 주는 통로가 되지 않게."""
+    지금 목록에 보이는 세션만 — 아무 대화 기록이나 읽어 주는 통로가 되지 않게.
+    project(프로젝트 키)가 오면 답마다 그 차례에 고친 파일(작업 상자)을 붙인다."""
     conversation = _service(request).conversation_of(key)
     if conversation is None:
         return JSONResponse({"error": "목록에 없는 세션입니다"}, status_code=404)
     path = chat.transcript(conversation)
     if path is None:
         return JSONResponse({"messages": [], "more": False})
-    return JSONResponse(chat.chat(path, limit))
+    out = chat.chat(path, limit)
+    if project and records.project(project):
+        records.chat_work(project, out["messages"])
+    return JSONResponse(out)
 
 
 @router.get("/claude/compat")

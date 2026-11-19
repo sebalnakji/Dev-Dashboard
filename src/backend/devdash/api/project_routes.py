@@ -175,6 +175,18 @@ def read_image(key: str, path: str) -> Response:
     return Response(content, media_type=kind, headers=IMAGE_HEADERS)
 
 
+@router.get("/{key}/turns/{prompt}/diff")
+def turn_diff(key: str, prompt: str, path: str, full: bool = False) -> JSONResponse:
+    """대화의 작업 상자에서 파일을 누르면: 그 차례의 변경
+    (처음 고치기 직전 → 마지막으로 고친 직후)."""
+    if bad := _check(key):
+        return bad
+    diff = records.turn_diff(key, prompt, path, full)
+    if diff is None:
+        return _error("그 차례에 이 파일을 고친 스냅샷이 없습니다", 404)
+    return JSONResponse(diff)
+
+
 @router.get("/{key}/sessions")
 def sessions(request: Request, key: str) -> JSONResponse:
     if bad := _check(key):

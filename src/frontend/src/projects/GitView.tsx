@@ -327,7 +327,7 @@ const NO_FILES: string[] = []
 const NO_OPEN = () => {}
 
 /** "+12 −3". 글이 아닌 파일은 줄 수가 없다 */
-function LineCounts({ added, deleted }: { added: number | null; deleted: number | null }) {
+export function LineCounts({ added, deleted }: { added: number | null; deleted: number | null }) {
   if (added == null || deleted == null) return <span className="shrink-0 text-xs text-gray-600">글 아님</span>
   return (
     <span className="shrink-0 text-xs tabular-nums">

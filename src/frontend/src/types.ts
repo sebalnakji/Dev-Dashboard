@@ -379,6 +379,33 @@ export interface ChatMessage {
   text: string
   at: string | null
   tools?: Record<string, number>
+  /** 그 차례(질문 하나와 그 답)의 번호 — 훅의 변경 기록 · 스냅샷과 같은 번호 */
+  prompt?: string | null
+  /** 그 차례에 이 프로젝트의 파일을 고쳤으면 작업 상자 (프로젝트를 함께 물었을 때만) */
+  work?: ChatWork
+}
+
+/** 대화 한 차례에서 고친 파일들 — 훅의 변경 기록과 스냅샷으로 만든다 (대화 기록의 도구 결과는 쓰지 않는다). */
+export interface ChatWork {
+  prompt: string
+  /** 그 차례가 붙은 할 일 (변경 기록에 없으면 null) */
+  task: { number: number; title: string } | null
+  files: ChatWorkFile[]
+}
+
+export interface ChatWorkFile {
+  /** 프로젝트 기준 경로 */
+  path: string
+  op: 'create' | 'edit'
+  /** 더한 줄 · 지운 줄. 스냅샷이 없거나 글이 아니면 null */
+  added: number | null
+  deleted: number | null
+  /** 그 차례의 스냅샷이 있어 비교를 열 수 있다 (이 기능 전의 옛 차례는 false) */
+  diff: boolean
+  /** 셸 명령(sed 등)으로 고쳤다 */
+  shell: boolean
+  /** 하위 작업(서브에이전트)만 고쳤다 — 작게 보인다 */
+  agent: boolean
 }
 
 export interface ChatResponse {
