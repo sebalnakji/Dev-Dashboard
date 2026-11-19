@@ -536,7 +536,7 @@ function Menu({
           ref={panel}
           // 자리를 잡기 전 첫 그림에는 보이지 않게 둔다
           style={{ visibility: 'hidden', left: 0, top: 0 }}
-          className="fixed z-20 flex min-w-36 flex-col rounded-md border border-edge bg-panel py-1 shadow-lg"
+          className="fixed z-20 flex min-w-24 flex-col rounded-md border border-edge bg-panel py-1 shadow-lg"
         >
           {items.map((item) => (
             <button
