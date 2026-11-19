@@ -348,6 +348,7 @@ class SessionService:
         sid = row["id"]
         # 지우면 관리자 기록(jobs/<번호>)도 사라지므로 마지막 대화 번호를 먼저 읽어 둔다
         conversation = self.conversation(row)
+        flags = agents.respawn_flags(sid)
         if row.get("pid"):
             kill_tree(row["pid"])
             agents.wait_roster_clear(row.get("sessionId") or "", limit=OP_TIMEOUT)
@@ -358,7 +359,9 @@ class SessionService:
             data["deleted"].append(
                 {
                     "id": sid,
-                    "name": row.get("name") or "",
+                    # 이름을 잃은 세션은 목록 이름이 번호다 — 그것을 이름으로 되살리지 않는다
+                    "name": row.get("name") if row.get("name") not in (None, "", sid) else "",
+                    "flags": flags,
                     "group": registry.group_of(data, sid),
                     "cwd": row.get("cwd") or "",
                     "sessionId": conversation or "",
@@ -392,7 +395,12 @@ class SessionService:
     def _restore(self, record: dict) -> None:
         name = record.get("name") or record["id"][:8]
         before = {r.get("id") for r in agents.all_sessions()}
-        err = agents.restore(record["cwd"], record["sessionId"])
+        err = agents.restore(
+            record["cwd"],
+            record["sessionId"],
+            record.get("flags") or [],
+            record.get("name") or None,
+        )
         row = None
         if not err:
             row = agents.wait_for(

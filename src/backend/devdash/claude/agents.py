@@ -151,13 +151,33 @@ def resume(cwd: str, conversation: str) -> str | None:
     return explain(*_run(["--bg", "--resume", conversation], cwd=cwd))
 
 
-def restore(cwd: str, conversation: str) -> str | None:
+def respawn_flags(session_id: str) -> list[str]:
+    """관리자 기록에 저장된 실행 옵션 (--name · --model · --remote-control · --permission-mode …).
+    못 읽으면 빈 목록."""
+    try:
+        state = json.loads((JOBS / session_id / "state.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    flags = state.get("respawnFlags") if isinstance(state, dict) else None
+    return [f for f in flags if isinstance(f, str)] if isinstance(flags, list) else []
+
+
+def restore(cwd: str, conversation: str, flags: list[str], name: str | None) -> str | None:
     """삭제(claude rm)한 세션을 그 대화로 다시 띄운다. 실패하면 이유를 돌려준다.
 
-    지우면 관리자 기록과 함께 실행 옵션도 사라져, 그냥 이으면 원격 제어 없이 깨어나 앱 사이드바에서
-    빠진다. 그래서 원격 제어를 다시 붙인다. 원본이 이미 없어 옵션을 붙여도 복사본이 생기지 않고,
-    같은 목록 번호 · 이름(대화 기록에서)으로 돌아온다 (2.1.327 시험 세션으로 확인)."""
-    return explain(*_run(["--bg", "--resume", conversation, "--remote-control"], cwd=cwd))
+    지우면 관리자 기록과 함께 실행 옵션도 사라진다. 그냥 이으면:
+    - 원격 제어 없이 깨어나 앱 사이드바에서 빠진다
+    - --name 이 없어, Claude 가 나중에 스스로 다시 띄울 때 이름이 목록 번호로 바뀐다
+      (관리자는 대화 기록의 이름을 읽지 않는다)
+    그래서 지울 때 적어 둔 실행 옵션을 다시 붙이고, 원격 제어 · 이름이 빠져 있으면 더한다.
+    원본이 이미 없어 옵션을 붙여도 복사본이 생기지 않고 같은 목록 번호로 돌아온다
+    (2.1.327 시험 세션으로 확인)."""
+    args = ["--bg", "--resume", conversation, *flags]
+    if "--remote-control" not in flags:
+        args.append("--remote-control")
+    if name and "--name" not in flags:
+        args += ["--name", name]
+    return explain(*_run(args, cwd=cwd))
 
 
 def create(cwd: str, name: str) -> str | None:

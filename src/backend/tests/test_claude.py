@@ -190,10 +190,34 @@ def test_마지막_대화_번호는_clear_뒤에_바뀌는_resumeSessionId_에�
     assert agents.last_conversation("없음") is None
 
 
-def test_복원은_지우며_사라진_원격_제어를_다시_붙인다(ran):
-    """지운 뒤라 원본이 없어 옵션을 붙여도 복사본이 생기지 않는다."""
-    agents.restore("C:/proj", AFTER_CLEAR_A)
-    assert ran[0]["args"] == ["--bg", "--resume", AFTER_CLEAR_A, "--remote-control"]
+def test_복원은_지울_때_적어_둔_실행_옵션을_다시_붙인다(ran):
+    """지운 뒤라 원본이 없어 옵션을 붙여도 복사본이 생기지 않는다.
+    --name 이 빠지면 Claude 가 스스로 다시 띄울 때 이름이 번호로 바뀐다."""
+    agents.restore("C:/proj", AFTER_CLEAR_A, ["--name", "alpha", "--model", "haiku"], "alpha")
+    assert ran[0]["args"] == [
+        "--bg",
+        "--resume",
+        AFTER_CLEAR_A,
+        "--name",
+        "alpha",
+        "--model",
+        "haiku",
+        "--remote-control",
+    ]
+
+
+def test_옛_복원_정보는_원격_제어와_이름을_더한다(ran):
+    agents.restore("C:/proj", AFTER_CLEAR_A, [], "alpha")
+    assert ran[0]["args"] == [
+        "--bg",
+        "--resume",
+        AFTER_CLEAR_A,
+        "--remote-control",
+        "--name",
+        "alpha",
+    ]
+    agents.restore("C:/proj", AFTER_CLEAR_A, [], None)
+    assert ran[1]["args"] == ["--bg", "--resume", AFTER_CLEAR_A, "--remote-control"]
 
 
 def test_신뢰_폴더는_승인한_것만_있는_폴더만(tmp_path, monkeypatch):
@@ -250,6 +274,7 @@ def svc(tmp_path, monkeypatch):
     monkeypatch.setattr(agents, "bg_task_count", lambda sid: 1)
     monkeypatch.setattr(agents, "last_conversation", lambda sid: None)
     monkeypatch.setattr(agents, "job_state", lambda sid: None)
+    monkeypatch.setattr(agents, "respawn_flags", lambda sid: [])
     monkeypatch.setattr(service, "kill_tree", lambda pid: calls.append(("kill", pid)))
     monkeypatch.setattr(
         service, "open_terminal", lambda cwd, title, args: calls.append(("term", args))
@@ -381,6 +406,7 @@ def test_삭제하면_claude_rm_하고_복원_정보를_남긴다(svc, monkeypat
     removed: list[str] = []
     monkeypatch.setattr(agents, "remove", lambda sid: removed.append(sid) or None)
     monkeypatch.setattr(agents, "last_conversation", lambda sid: AFTER_CLEAR_A)
+    monkeypatch.setattr(agents, "respawn_flags", lambda sid: ["--name", "alpha"])
     svc.edit(lambda d: registry.add_group(d, "G"))
     svc.place(ID_A, "G", [ID_A])
     assert svc.delete(svc.entry(ID_A)) is None
@@ -393,6 +419,10 @@ def test_삭제하면_claude_rm_하고_복원_정보를_남긴다(svc, monkeypat
     # 지우면 관리자 기록이 사라지므로 마지막 대화 번호를 먼저 읽어 둔다
     assert record["sessionId"] == AFTER_CLEAR_A and record["group"] == "G"
     assert record["cwd"] == svc.cwd and record["name"] == "alpha"
+    assert record["flags"] == [
+        "--name",
+        "alpha",
+    ]  # 지우면 관리자 기록과 함께 사라지므로 먼저 적어 둔다
 
 
 def test_켜진_세션은_끄고_지운다_작업_중이면_거절(svc, monkeypatch):
@@ -447,14 +477,14 @@ def test_복원하면_마지막_대화로_띄우고_그룹을_되돌린다(svc, 
     svc.every[:] = [r for r in svc.every if r["id"] != ID_A]
     assert svc.view()["deleted"][0]["restorable"] is True
 
-    def resumed(cwd, conv):
-        svc.calls.append(("resume", cwd, conv))
-        svc.every.append(bg("ffffffff", conv, "alpha", cwd, pid=7))  # 새 목록 번호로 살아난다
+    def resumed(cwd, conv, flags, name):
+        svc.calls.append(("resume", cwd, conv, tuple(flags), name))
+        svc.every.append(bg("ffffffff", conv, "alpha", cwd, pid=7))
 
     monkeypatch.setattr(agents, "restore", resumed)
     assert svc.restore(ID_A) is None
     run_background(svc)
-    assert ("resume", svc.cwd, AFTER_CLEAR_A) in svc.calls
+    assert ("resume", svc.cwd, AFTER_CLEAR_A, (), "alpha") in svc.calls
     data = registry.load(svc.path)
     assert data["deleted"] == [] and registry.group_of(data, "ffffffff") == "G"
 
