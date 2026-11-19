@@ -12,13 +12,13 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell",
         "hooks": [ { "type": "command", "command": "py -3 \"${CLAUDE_PLUGIN_ROOT}/scripts/devdash_hook.py\" PreToolUse", "timeout": 15 } ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell",
         "hooks": [ { "type": "command", "command": "py -3 \"${CLAUDE_PLUGIN_ROOT}/scripts/devdash_hook.py\" PostToolUse", "timeout": 15 } ]
       }
     ],

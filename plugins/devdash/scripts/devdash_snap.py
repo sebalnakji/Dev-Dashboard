@@ -182,7 +182,6 @@ READ_ONLY = frozenset(
         "fgrep",
         "rg",
         "ag",
-        "fd",
         "echo",
         "printf",
         "pwd",
@@ -194,8 +193,6 @@ READ_ONLY = frozenset(
         "du",
         "df",
         "tree",
-        "less",
-        "more",
         "uniq",
         "cut",
         "diff",
@@ -229,13 +226,79 @@ READ_ONLY = frozenset(
         "tr",
         "comm",
         "od",
-        "xxd",
         "hexdump",
         "strings",
         "cd",
     ]
 )
-"""파일을 바꾸지 않는 명령. 여기 없거나 애매하면 읽기 전용으로 보지 않는다 (사용자 결정)."""
+"""파일을 바꾸지 않는 명령. 여기 없거나 애매하면 읽기 전용으로 보지 않는다 (사용자 결정).
+인자에 따라 파일을 쓰는 것(uniq · tree · find · sort · file)은 _writes 가 인자를 보고 가린다.
+xxd(-r · 출력 파일) · less(-o) · fd(-x 로 명령 실행)는 아예 넣지 않는다 (S3 검토)."""
+
+PS_READ_ONLY = frozenset(
+    [
+        "get-childitem",
+        "gci",
+        "ls",
+        "dir",
+        "get-content",
+        "gc",
+        "cat",
+        "type",
+        "select-string",
+        "sls",
+        "test-path",
+        "get-item",
+        "gi",
+        "get-location",
+        "gl",
+        "pwd",
+        "resolve-path",
+        "get-command",
+        "gcm",
+        "measure-object",
+        "measure",
+        "select-object",
+        "select",
+        "where-object",
+        "where",
+        "sort-object",
+        "sort",
+        "format-table",
+        "ft",
+        "format-list",
+        "fl",
+        "format-wide",
+        "fw",
+        "out-string",
+        "write-output",
+        "echo",
+        "write-host",
+        "get-date",
+        "get-filehash",
+        "get-process",
+        "ps",
+        "split-path",
+        "join-path",
+        "out-null",
+        "get-member",
+        "gm",
+        "group-object",
+        "group",
+        "convertto-json",
+        "convertfrom-json",
+        "set-location",
+        "cd",
+        "sl",
+        "push-location",
+        "pushd",
+        "pop-location",
+        "popd",
+        "get-itemproperty",
+        "gp",
+    ]
+)
+"""PowerShell 에서 확실히 읽기만 하는 명령 (대소문자 무시). 여기 없으면 돌린다 (사용자 결정)."""
 
 GIT_READ_ONLY = frozenset(
     [
@@ -270,18 +333,62 @@ _PARTS = re.compile(r"&&|\|\||[;|&\n]")
 _HARMLESS_REDIRECT = re.compile(r"\d?>&\d|\d?>\s*(/dev/null|nul|\$null)\b", re.IGNORECASE)
 
 
-def read_only(command: object) -> bool:
-    """확실히 읽기만 하는 셸 명령인가. 이어 붙인 명령(&& ; |)은 모두 그래야 한다.
-    파일로 내보내기(>) · 명령 치환($( ) ` `) · 모르는 명령이 하나라도 있으면 False."""
+FIND_WRITES = ("-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fls")
+"""find 의 이런 인자는 명령을 돌리거나 파일을 쓴다 (-fprint0 · -fprintf 도 -fprint 로 시작)."""
+
+
+def _short_flags(args: list[str]) -> str:
+    """붙여 쓴 짧은 옵션들의 글자 (-uo → 'uo'). 긴 옵션(--x)은 빼고."""
+    return "".join(a[1:] for a in args if a.startswith("-") and not a.startswith("--"))
+
+
+def _writes(name: str, args: list[str]) -> bool:
+    """읽기 전용 목록의 명령이지만 이 인자면 파일을 쓸 수 있나."""
+    positional = [a for a in args if not a.startswith("-")]
+    if name == "find":
+        return any(a.startswith(FIND_WRITES) for a in args)
+    if name == "sort":
+        return "o" in _short_flags(args) or any(a.startswith("--output") for a in args)
+    if name == "uniq":
+        return len(positional) >= 2  # uniq 입력 출력
+    if name == "tree":
+        return "o" in _short_flags(args) or any(a.startswith("--output") for a in args)
+    if name == "file":
+        return "C" in _short_flags(args)  # -C: 매직 파일을 만든다
+    return False
+
+
+def _git_read_only(args: list[str]) -> bool:
+    rest = list(args)
+    while rest and rest[0].startswith("-"):
+        flag = rest.pop(0)
+        if flag in ("-C", "-c") and rest:
+            rest.pop(0)
+    if not rest or rest[0] not in GIT_READ_ONLY:
+        return False
+    # git diff/log --output=파일 은 파일을 쓴다
+    return not any(a.startswith("--output") for a in rest[1:])
+
+
+def _split(command: object, harmless=_HARMLESS_REDIRECT) -> list[list[str]] | None:
+    """이어 붙인 명령을 낱말 목록들로. 읽기 전용일 수 없는 모양(내보내기 · 명령 치환)이면 None."""
     if not isinstance(command, str) or not command.strip():
-        return False
+        return None
     if "`" in command or "$(" in command or "<(" in command:
-        return False
-    text = _HARMLESS_REDIRECT.sub(" ", command)
+        return None
+    text = harmless.sub(" ", command)
     if ">" in text:
+        return None
+    return [part.split() for part in _PARTS.split(text)]
+
+
+def read_only(command: object) -> bool:
+    """확실히 읽기만 하는 셸 명령인가 (Bash). 이어 붙인 명령(&& ; |)은 모두 그래야 한다.
+    파일로 내보내기(>) · 명령 치환($( ) ` `) · 모르는 명령이 하나라도 있으면 False."""
+    parts = _split(command)
+    if parts is None:
         return False
-    for part in _PARTS.split(text):
-        words = part.split()
+    for words in parts:
         while words and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]):
             words.pop(0)  # FOO=1 명령
         if not words:
@@ -289,21 +396,34 @@ def read_only(command: object) -> bool:
         name = os.path.basename(words[0].strip("\"'")).lower().removesuffix(".exe")
         args = words[1:]
         if name == "git":
-            rest = list(args)
-            while rest and rest[0].startswith("-"):
-                flag = rest.pop(0)
-                if flag in ("-C", "-c") and rest:
-                    rest.pop(0)
-            if rest and rest[0] in GIT_READ_ONLY:
+            if _git_read_only(args):
                 continue
             return False
-        if name not in READ_ONLY:
+        if name not in READ_ONLY or _writes(name, args):
             return False
-        if name == "find" and any(
-            a in ("-exec", "-execdir", "-delete", "-ok", "-fprint") for a in args
-        ):
+    return True
+
+
+_PS_HARMLESS_REDIRECT = re.compile(r"[\d*]?>&\d|[\d*]?>\s*\$null\b", re.IGNORECASE)
+
+
+def read_only_ps(command: object) -> bool:
+    """확실히 읽기만 하는 PowerShell 명령인가. 몇 개 명령만 (PS_READ_ONLY) — 애매하면 False.
+    변수 대입 · 호출 연산자(&) · 블록({ }) 안의 명령은 보지 않고 돌린다."""
+    if isinstance(command, str) and ("{" in command or "@(" in command):
+        return False  # ForEach-Object { … } · 하위 식 — 안에서 무엇이든 할 수 있다
+    parts = _split(command, _PS_HARMLESS_REDIRECT)
+    if parts is None:
+        return False
+    for words in parts:
+        if not words:
+            continue
+        name = words[0].strip("\"'").lower().removesuffix(".exe")
+        if name == "git":
+            if _git_read_only(words[1:]):
+                continue
             return False
-        if name == "sort" and any(a.startswith(("-o", "--output")) for a in args):
+        if name not in PS_READ_ONLY:
             return False
     return True
 

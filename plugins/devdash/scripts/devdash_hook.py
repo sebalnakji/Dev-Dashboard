@@ -33,6 +33,9 @@ LAST_MESSAGE_LIMIT = 500
 
 FILE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
 
+SHELL_TOOLS = ("Bash", "PowerShell")
+"""셸 도구. 무엇을 고칠지 미리 알 수 없어 명령 전후 git 상태로 잡는다."""
+
 RECORDS_HINT = "[devdash] 작업 기록 폴더: {tasks} · 세션 이름: {name}"
 """Claude 에게 알리는 줄. '작업 기록 폴더' · '세션 이름' 낱말은 SKILL.md 와 같아야 한다
 (테스트로 묶음). 매 차례가 아니라 필요할 때만 낸다 — 매 차례면 100차례에 수천 토큰이
@@ -328,7 +331,7 @@ def on_pre_tool(store, tasks_mod, key: str, root: str, data: dict) -> None:
 
 
 def on_post_tool(store, tasks_mod, key: str, root: str, data: dict) -> None:
-    if data.get("tool_name") == "Bash":
+    if data.get("tool_name") in SHELL_TOOLS:
         on_post_bash(store, tasks_mod, key, root, data)
         return
     target = _target(store, data, root)
@@ -430,6 +433,7 @@ def on_post_bash(store, tasks_mod, key: str, root: str, data: dict) -> None:
         path.write_text(json.dumps({**state, "pending": pending}), encoding="utf-8")
     top = Path(pre["top"])
     was = pre["files"]
+    shell_tool = data.get("tool_name") or "Bash"
     changed = []
     for rel in dict.fromkeys([*snap.status(top), *was]):
         full = str(top / rel)
@@ -470,13 +474,15 @@ def on_post_bash(store, tasks_mod, key: str, root: str, data: dict) -> None:
         if before == after and before not in ("unknown",):
             continue  # 건드렸지만 내용은 그대로
         op = "create" if before is None else "delete" if after is None else "modify"
-        _record(store, key, data, task, op, rel_p, worktree, "Bash")
+        _record(store, key, data, task, op, rel_p, worktree, shell_tool)
         recorded = True
         with _snapshot_errors():
             spot = f"{worktree or ''}:{rel_p}"
             if _first_in_turn(store, key, data.get("session_id"), data.get("prompt_id"), spot):
-                _snapshot(store, snap, key, data, task, rel_p, worktree, "before", before, "Bash")
-            _snapshot(store, snap, key, data, task, rel_p, worktree, "after", after, "Bash")
+                _snapshot(
+                    store, snap, key, data, task, rel_p, worktree, "before", before, shell_tool
+                )
+            _snapshot(store, snap, key, data, task, rel_p, worktree, "after", after, shell_tool)
     if recorded:
         _remind_once(store, key, data, name, doing)
 
@@ -649,10 +655,12 @@ def run(event: str, data: dict) -> None:
     # 파일을 바꾸지 않는 도구는 프로젝트를 찾기(git 호출) 전에 끝낸다. 모든 세션에서 도는 훅이다
     tool = data.get("tool_name")
     if event in ("PreToolUse", "PostToolUse"):
-        if tool == "Bash":
+        if tool in SHELL_TOOLS:
             tool_input = data.get("tool_input")
             command = tool_input.get("command") if isinstance(tool_input, dict) else None
-            if _snap().read_only(command):  # ls · cat · git log … : git status 도 돌리지 않는다
+            snap = _snap()
+            check = snap.read_only_ps if tool == "PowerShell" else snap.read_only
+            if check(command):  # ls · cat · git log … : git status 도 돌리지 않는다
                 return
         elif tool not in FILE_TOOLS:
             return
@@ -667,7 +675,7 @@ def run(event: str, data: dict) -> None:
         on_session_start(store, key, data)
     elif event == "SessionEnd":
         on_session_end(store, key, data)
-    elif event == "PreToolUse" and tool == "Bash":
+    elif event == "PreToolUse" and tool in SHELL_TOOLS:
         on_pre_bash(store, key, root, data)
     elif event == "PreToolUse":
         on_pre_tool(store, tasks_mod, key, root, data)

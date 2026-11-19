@@ -819,10 +819,10 @@ def test_플러그인_훅_등록은_훅_스크립트가_처리하는_이벤트�
         command = groups[0]["hooks"][0]["command"]
         assert command.endswith(f'devdash_hook.py" {event}') and command.startswith("py -3 ")
     pre = hooks["hooks"]["PreToolUse"][0]["matcher"].split("|")
-    assert set(pre) == {*hook.FILE_TOOLS, "Bash"}  # 셸 명령 직전 git 상태
+    assert set(pre) == {*hook.FILE_TOOLS, *hook.SHELL_TOOLS}  # 셸 명령 직전 git 상태
     # 셸 명령이 바꾼 파일도 스냅샷으로 남긴다 (직전 내용은 바뀐 부분을 거꾸로 적용해 만든다)
     post = hooks["hooks"]["PostToolUse"][0]["matcher"].split("|")
-    assert set(post) == {*hook.FILE_TOOLS, "Bash"}
+    assert set(post) == {*hook.FILE_TOOLS, *hook.SHELL_TOOLS}
 
 
 # --- 화면 세션 칸의 "마지막 작업 · 언제" (6단계) ---
@@ -955,13 +955,22 @@ def test_git_이_아닌_폴더에서도_남긴다(env, capsys, tmp_path):
     )
 
 
-def shell(cwd: Path, capsys, command: str, change=None, prompt_id="p1", use="t1", response=None):
+def shell(
+    cwd: Path,
+    capsys,
+    command: str,
+    change=None,
+    prompt_id="p1",
+    use="t1",
+    response=None,
+    name="Bash",
+):
     """Claude 의 셸 명령 한 번: 직전 훅 → 명령(change) → 직후 훅."""
     data = {
         "session_id": "s1",
         "prompt_id": prompt_id,
         "cwd": str(cwd),
-        "tool_name": "Bash",
+        "tool_name": name,
         "tool_use_id": use,
         "tool_input": {"command": command},
     }
@@ -1058,6 +1067,26 @@ def test_읽기만_하는_셸_명령은_git_도_부르지_않는다(env, capsys,
         ("sed -n 1,5p a.py", False),
         ("find . -name '*.pyc' -delete", False),
         ("sort -o out.txt in.txt", False),
+        # S3 검토: 읽기 전용 목록이지만 인자에 따라 파일을 쓰는 경우
+        ("sort -uo out.txt in.txt", False),
+        ("sort -u in.txt", True),
+        ("uniq in.txt out.txt", False),
+        ("sort a | uniq -c", True),
+        ("uniq -c in.txt", True),
+        ("xxd -r dump.hex out.bin", False),
+        ("xxd a.bin", False),  # xxd 는 아예 목록에 없다 (출력 파일 인자)
+        ("tree -o out.txt", False),
+        ("tree -L 2 src", True),
+        ("find . -fprint0 out", False),
+        ("find . -fprintf out %p", False),
+        ("find . -fls out", False),
+        ("find . -name '*.py'", True),
+        ("git diff --output=patch.txt", False),
+        ("git log --output=log.txt -3", False),
+        ("git -C x log --oneline -3", True),
+        ("less -o log.txt a", False),
+        ("fd -x rm", False),
+        ("file -C -m magic", False),
         ("git commit -m x", False),
         ("git branch -D x", False),
         ("ls $(pwd)", False),
@@ -1146,3 +1175,56 @@ def test_스냅샷이_실패해도_변경_기록과_알림은_한다(env, capsys
     a = env["repo"] / "src" / "a.py"
     tool(env, capsys, "PostToolUse", a, prompt_id="p9")
     assert store.read_activity(key_of(env))[-1]["prompt"] == "p9"
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("Get-ChildItem src", True),
+        ("Get-Content a.py -TotalCount 5 | Select-String x", True),
+        ("Test-Path a.py; git status", True),
+        ("Get-ChildItem 2>$null", True),
+        ("gci -Recurse | Measure-Object", True),
+        ("Get-Content a.py | Set-Content b.py", False),
+        ("Get-Content a.py > b.py", False),
+        ("'x' | Out-File a.txt -Encoding utf8", False),
+        ("Get-ChildItem | ForEach-Object { Remove-Item $_ }", False),
+        ("$x = Get-Content a.py", False),
+        ("& git merge s3", False),
+        ("git merge --ff-only s3", False),
+        ("git log --output=log.txt", False),
+        ("Remove-Item a.py", False),
+        ("", False),
+    ],
+)
+def test_PowerShell_읽기만_하는_명령_가리기(command, expected):
+    """확실한 몇 개만 건너뛴다 — 애매하면 돌린다."""
+    assert snap.read_only_ps(command) is expected
+
+
+def test_PowerShell_로_고친_파일도_명령_전후_git_상태로_잡는다(env, capsys, doing):
+    """S3 검토: 매처에 PowerShell 이 없어 이 PC 셸 호출의 약 11% 가 빠졌다."""
+    repo = env["repo"]
+    a = repo / "src" / "a.py"
+
+    def change():
+        a.write_text("a 고침", encoding="utf-8")
+
+    shell(repo, capsys, "Set-Content src/a.py 'a 고침' -Encoding utf8", change, name="PowerShell")
+    rows = snaps(env)
+    assert [(r["path"], r["when"], r["tool"]) for r in rows] == [
+        ("src/a.py", "before", "PowerShell"),
+        ("src/a.py", "after", "PowerShell"),
+    ]
+    assert content(env, rows[0]["blob"]) == "a"
+    assert acts(env)[-1]["tool"] == "PowerShell" and acts(env)[-1]["task"] == "T-5"
+
+
+def test_PowerShell_읽기_명령은_git_도_부르지_않는다(env, capsys, doing, monkeypatch):
+    called = []
+    monkeypatch.setattr(snap, "status", lambda top: called.append(top) or {})
+    monkeypatch.setattr(hook, "_snap", lambda: snap)
+    shell(env["repo"], capsys, "Get-ChildItem src | Select-Object Name", name="PowerShell")
+    assert called == []
+    shell(env["repo"], capsys, "Copy-Item a b", name="PowerShell")
+    assert len(called) == 2

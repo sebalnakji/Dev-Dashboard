@@ -1007,7 +1007,7 @@ def chat_work(key: str, messages: list[dict]) -> None:
                     "added": added,
                     "deleted": deleted,
                     "diff": pair is not None,
-                    "shell": any(r.get("tool") == "Bash" for r in rows),
+                    "shell": any(r.get("tool") in ("Bash", "PowerShell") for r in rows),
                     # 하위 작업(서브에이전트)만 고친 파일 — 화면이 작게 보인다
                     "agent": all(r.get("agent") for r in rows),
                 }
