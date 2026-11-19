@@ -170,8 +170,11 @@ export const fetchRemote = (key: string) =>
 
 export const saveProjectOrder = (keys: string[]) => send<{ ok?: true }>('PUT', '/api/projects/order', { keys })
 export const renameProject = (key: string, name: string) => send<ProjectRow>('PATCH', project(key), { name })
-/** 등록 해제. 기록은 남는다 (같은 폴더를 다시 추가하면 이어진다). */
-export const unregisterProject = (key: string) => send<{ ok?: true }>('DELETE', project(key))
+/** 등록 해제. 기록은 남는다 (같은 폴더를 다시 추가하면 이어진다). snapshots 면 스냅샷은 지운다 */
+export const unregisterProject = (key: string, snapshots: boolean) =>
+  send<{ ok?: true }>('DELETE', `${project(key)}?snapshots=${snapshots}`)
+/** 스냅샷(고치기 직전 · 직후 내용)이 차지하는 바이트 */
+export const fetchSnapshotSize = (key: string) => getJson<{ bytes: number }>(`${project(key)}/snapshots`)
 export const fetchFileHistory = (key: string, path: string) =>
   getJson<FileHistoryRow[]>(`${project(key)}/file-history?path=${encodeURIComponent(path)}`)
 /** 그림 파일 주소 (<img> 가 바로 부른다). 폴더 밖 · 10MB 넘음 · 그림이 아니면 서버가 409 */

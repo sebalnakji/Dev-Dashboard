@@ -94,12 +94,21 @@ def rename(key: str, body: RenameBody) -> JSONResponse:
         return _error(str(exc), 409)
 
 
-@router.delete("/{key}")
-def unregister(request: Request, key: str) -> JSONResponse:
-    """등록 해제. 기록은 남는다 (같은 폴더를 다시 추가하면 이어진다)."""
+@router.get("/{key}/snapshots")
+def snapshot_size(key: str) -> JSONResponse:
+    """프로젝트 메뉴에 보일 스냅샷 용량."""
     if bad := _check(key):
         return bad
-    records.unregister(key)
+    return JSONResponse({"bytes": records.snapshot_size(key)})
+
+
+@router.delete("/{key}")
+def unregister(request: Request, key: str, snapshots: bool = False) -> JSONResponse:
+    """등록 해제. 기록은 남는다 (같은 폴더를 다시 추가하면 이어진다).
+    snapshots=true 면 스냅샷(고치기 직전 · 직후 내용)은 지운다."""
+    if bad := _check(key):
+        return bad
+    records.unregister(key, snapshots)
     try:
         with registry.editing(request.app.state.claude.path) as data:
             records.drop_members(key, data)

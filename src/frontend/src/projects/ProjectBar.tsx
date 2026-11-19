@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 
-import { renameProject, saveProjectOrder, unregisterProject } from '../api/client'
+import { fetchSnapshotSize, renameProject, saveProjectOrder, unregisterProject } from '../api/client'
 import { Modal } from '../components/Modal'
 import { BUTTON, INPUT, NOTICE, reasonOf } from '../components/styles'
 import { goToProject } from '../hooks/useHashRoute'
@@ -100,6 +100,7 @@ export function ProjectBar({
           {menuFor === p.key && (
             <Menu
               onClose={() => setMenuFor(null)}
+              footer={<SnapshotSize projectKey={p.key} />}
               items={[
                 { label: '이름 바꾸기', run: () => setRenaming(p) },
                 { label: '등록 해제', danger: true, run: () => setRemoving(p) },
@@ -140,9 +141,12 @@ export function ProjectBar({
 function Menu({
   items,
   onClose,
+  footer,
 }: {
   items: { label: string; danger?: boolean; run: () => void }[]
   onClose: () => void
+  /** 메뉴 아래의 누를 수 없는 안내 줄 */
+  footer?: ReactNode
 }) {
   const box = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -180,7 +184,40 @@ function Menu({
           {item.label}
         </button>
       ))}
+      {footer && <div className="mt-1 border-t border-edge px-3 pt-1.5 pb-1 text-xs text-gray-500">{footer}</div>}
     </div>
+  )
+}
+
+/** "12.3 MB" */
+function bytesText(n: number): string {
+  if (n < 1024) return `${n} B`
+  const units = ['KB', 'MB', 'GB']
+  let v = n / 1024
+  let i = 0
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024
+    i++
+  }
+  return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}`
+}
+
+/** 스냅샷 용량 — 메뉴를 열 때 묻는다. 자동으로 지우지 않으므로 얼마나 쌓였는지 보이게 한다 */
+function SnapshotSize({ projectKey, prefix = '스냅샷' }: { projectKey: string; prefix?: string }) {
+  const [bytes, setBytes] = useState<number | null>(null)
+  useEffect(() => {
+    let alive = true
+    fetchSnapshotSize(projectKey)
+      .then((r) => alive && setBytes(r.bytes))
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [projectKey])
+  return (
+    <span title="고치기 직전 · 직후 내용. 자동으로 지우지 않습니다 (등록 해제 때 지울 수 있습니다)">
+      {prefix} {bytes == null ? '…' : bytesText(bytes)}
+    </span>
   )
 }
 
@@ -246,10 +283,11 @@ function RemoveDialog({
 }) {
   const [message, setMessage] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [dropSnapshots, setDropSnapshots] = useState(false)
 
   async function remove() {
     setBusy(true)
-    const result = await unregisterProject(project.key).catch((e) => ({ error: reasonOf(e) }))
+    const result = await unregisterProject(project.key, dropSnapshots).catch((e) => ({ error: reasonOf(e) }))
     setBusy(false)
     if (result.error) setMessage(result.error)
     else onDone()
@@ -277,6 +315,15 @@ function RemoveDialog({
         <li>지금까지의 작업 · 변경 기록은 지우지 않습니다. 같은 폴더를 다시 추가하면 그대로 이어집니다.</li>
         <li>[세션 고르기]로 이 프로젝트에 넣어 둔 세션은 작업 폴더 기준 소속으로 돌아갑니다.</li>
       </ul>
+      <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm text-gray-200">
+        <input type="checkbox" checked={dropSnapshots} onChange={(e) => setDropSnapshots(e.target.checked)} />
+        <span>
+          스냅샷도 지우기 <span className="text-xs text-gray-500">(<SnapshotSize projectKey={project.key} prefix="" />)</span>
+        </span>
+      </label>
+      <p className="mt-1 pl-6 text-xs text-gray-500">
+        고치기 직전 · 직후 내용입니다. 지우면 작업별 · 차례별 비교를 다시 볼 수 없습니다.
+      </p>
       <p className="mt-2 truncate text-xs text-gray-500" title={project.root}>
         {project.root}
       </p>

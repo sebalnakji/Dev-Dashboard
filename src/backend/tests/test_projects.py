@@ -997,3 +997,23 @@ def test_대화의_답마다_그_차례에_고친_파일을_붙인다(client, en
     assert d["hunks"][0]["lines"] == [[" ", "a"], ["-", "b"], ["+", "B"], ["+", "c"]]
     r = client.get(f"/api/projects/{key}/turns/p2/diff", params={"path": "src/old.py"})
     assert r.status_code == 404
+
+
+def test_스냅샷_용량을_보이고_등록_해제_때_고르면_지운다(client, env):
+    """자동으로 지우지 않는다. 등록 해제에서 고른 때만 (긴 경로 · 읽기 전용 git 파일도)."""
+    key = add(client, env)
+    project = store.project_dir(key)
+    assert client.get(f"/api/projects/{key}/snapshots").json() == {"bytes": 0}
+    snapshots(key, "src/a.py", "T-1", ("before", "a\n" * 100), ("after", "b\n" * 100))
+    size = client.get(f"/api/projects/{key}/snapshots").json()["bytes"]
+    assert size > snap.log_path(project).stat().st_size  # 기록 줄 + 저장소 안의 내용
+
+    # 고르지 않으면 남는다 (다시 추가하면 비교도 이어진다)
+    assert client.delete(f"/api/projects/{key}").json() == {"ok": True}
+    assert snap.repo(project).exists() and snap.log_path(project).exists()
+    key = add(client, env)
+    assert client.get(f"/api/projects/{key}/snapshots").json()["bytes"] == size
+
+    assert client.delete(f"/api/projects/{key}", params={"snapshots": True}).json() == {"ok": True}
+    assert not snap.repo(project).exists() and not snap.log_path(project).exists()
+    assert (project / "project.removed.json").exists()  # 다른 기록은 그대로

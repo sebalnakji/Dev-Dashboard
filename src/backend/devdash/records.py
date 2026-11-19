@@ -13,6 +13,8 @@ import difflib
 import json
 import os
 import re
+import shutil
+import stat
 import subprocess
 import threading
 import time
@@ -27,6 +29,8 @@ from devdash.local import run_bounded
 
 # isort: split
 # 위의 devdash.home 이 플러그인 스크립트 폴더를 import 경로에 올린 뒤에야 불러올 수 있다
+import contextlib
+
 import devdash_snap as snap
 import devdash_store as store
 import devdash_tasks as tasks
@@ -235,15 +239,51 @@ def rename(key: str, name: str) -> dict:
     return next(p for p in list_projects() if p["key"] == key)
 
 
-def unregister(key: str) -> None:
+def _long(path: os.PathLike[str]) -> str:
+    """윈도우에서 260자 넘는 경로도 다룰 수 있게 (스냅샷 저장소 안쪽은 경로가 깊다)."""
+    full = os.path.abspath(path)
+    return "\\\\?\\" + full if os.name == "nt" and not full.startswith("\\\\") else full
+
+
+def snapshot_size(key: str) -> int:
+    """이 프로젝트의 스냅샷(snapshots.git · snapshots.jsonl)이 차지하는 바이트."""
+    d = store.project_dir(key)
+    total = 0
+    log = snap.log_path(d)
+    if log.is_file():
+        total += log.stat().st_size
+    for folder, _dirs, names in os.walk(_long(snap.repo(d))):
+        for name in names:
+            with contextlib.suppress(OSError):
+                total += os.path.getsize(os.path.join(folder, name))
+    return total
+
+
+def drop_snapshots(key: str) -> None:
+    """스냅샷을 지운다 (되살릴 수 없다). git 이 만든 읽기 전용 파일도 지운다."""
+
+    def writable_then_retry(func, path, _exc) -> None:
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+
+    d = store.project_dir(key)
+    if snap.repo(d).exists():
+        shutil.rmtree(_long(snap.repo(d)), onerror=writable_then_retry)
+    snap.log_path(d).unlink(missing_ok=True)
+
+
+def unregister(key: str, snapshots: bool = False) -> None:
     """등록을 푼다. 기록(할 일 · 변경 기록 · 세션)은 지우지 않는다.
 
     project.json 을 project.removed.json 으로 비켜 두면 훅이 이 프로젝트를 못 찾아 기록을 멈추고,
     화면 목록에서도 빠진다. 같은 폴더를 다시 추가하면 남은 기록이 그대로 이어진다 —
     지운 기록은 되살릴 수 없어 지우지 않는 쪽을 골랐다.
+    스냅샷(고치기 직전 · 직후 내용)은 용량이 클 수 있어 사용자가 고르면 함께 지운다.
     """
     d = store.project_dir(key)
     os.replace(d / "project.json", d / "project.removed.json")
+    if snapshots:
+        drop_snapshots(key)
     order = _read_order()
     if key in order:
         _write_json(_order_path(), [k for k in order if k != key])
