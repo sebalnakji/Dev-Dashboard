@@ -543,7 +543,7 @@ function Menu({
               key={item.label}
               type="button"
               onClick={item.onClick}
-              className={`cursor-pointer px-3 py-1.5 text-left text-xs hover:bg-hover ${
+              className={`cursor-pointer px-3 py-1.5 text-center text-xs hover:bg-hover ${
                 item.danger ? 'text-[#f0b8a4]' : 'text-gray-100'
               }`}
             >
