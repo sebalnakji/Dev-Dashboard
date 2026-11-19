@@ -3,8 +3,11 @@
     UserPromptSubmit   세션 이름을 정하고, 필요할 때 "작업 기록 폴더 · 세션 이름" 알림
     SessionStart       요약(compact) · 이어 열기(resume) 뒤 알림 다시. /clear 면 이름 넘겨받기
     SessionEnd         /clear 직전 이름을 맡겨 둔다
-    PostToolUse        파일을 만들거나 고친 직후 변경 기록 한 줄 (진행 중 할 일 번호와 함께).
-                       차례의 첫 변경이면 할 일에 적으라고 한 번 알린다 (2겹 알림)
+    PreToolUse         파일을 고치기 직전 내용을 스냅샷으로 (그 차례에 그 파일을 처음 고칠 때만)
+    PostToolUse        파일을 만들거나 고친 직후 변경 기록 한 줄 (진행 중 할 일 번호와 함께)과
+                       고친 직후 내용의 스냅샷. 셸 명령(Bash)이 바꾼 파일도 Claude 가 남긴 바뀐
+                       부분으로 같이 남긴다 (devdash_snap). 차례의 첫 변경이면 할 일에 적으라고
+                       한 번 알린다 (2겹 알림)
     Stop               마지막 작업 저장. 이 세션의 완료 할 일에 '한 일'이 비면 한 번 막는다
                        (2겹 강제)
 
@@ -74,6 +77,13 @@ def _store():
     import devdash_tasks
 
     return devdash_store, devdash_tasks
+
+
+def _snap():
+    sys.path.insert(0, str(HERE))
+    import devdash_snap
+
+    return devdash_snap
 
 
 # --- 세션 이름 ---
@@ -245,41 +255,185 @@ def take_name_after_clear(store, key: str, data: dict) -> None:
         )
 
 
-def on_post_tool(store, tasks_mod, key: str, root: str, data: dict) -> None:
+def _target(store, data: dict, root: str) -> tuple[str, str, str | None] | None:
+    """파일 도구가 고치는 파일 (실제 경로, 저장소 기준 경로, 작업용 복사본).
+    프로젝트 밖이면 None."""
     tool_input = data.get("tool_input")
     if not isinstance(tool_input, dict):
-        return
+        return None
     path = tool_input.get("file_path") or tool_input.get("notebook_path")
     if not path:
-        return
+        return None
     where = store.relative_in_project(path, root)
     if where is None:  # 프로젝트 밖 파일 (메모리 · 할 일 파일 · 임시 파일)
-        return
-    rel, worktree = where
+        return None
+    return path, where[0], where[1]
+
+
+def _turn(store, tasks_mod, key: str, data: dict) -> tuple[str | None, list[str]]:
+    """(세션 이름, 그 세션의 진행 중 할 일들). 이름이 없으면 기록 규칙을 모르는 세션이다."""
     sid = data.get("session_id")
-    info = store.session_info(key, sid) if sid else {}
-    name = info.get("name")
-    doing = doing_tasks(store, tasks_mod, key, name) if name else []
-    prompt_id = data.get("prompt_id")
+    name = store.session_info(key, sid).get("name") if sid else None
+    return name, (doing_tasks(store, tasks_mod, key, name) if name else [])
+
+
+def _first_in_turn(store, key: str, sid: str | None, prompt: str | None, spot: str) -> bool:
+    """이 차례에 이 파일의 직전 내용을 아직 안 남겼나 — 남겼다고 적어 둔다.
+    차례마다 처음 고치기 직전만 남긴다 (작업 비교는 그 작업의 첫 차례 직전을 쓴다)."""
+    if not sid:
+        return True
+    snap = store.session_info(key, sid).get("snap") or {}
+    seen = snap.get("paths", []) if snap.get("prompt") == prompt else []
+    if spot in seen:
+        return False
+    store.update_session(key, sid, snap={"prompt": prompt, "paths": [*seen, spot]})
+    return True
+
+
+def _snapshot(store, snap, key: str, data: dict, task, rel: str, worktree, when: str, blob, tool):
+    path = snap.log_path(store.project_dir(key))
+    record = {
+        "at": now(),
+        "session": data.get("session_id"),
+        "prompt": data.get("prompt_id"),
+        "task": task,
+        "path": rel,
+        "worktree": worktree,
+        "when": when,
+        "blob": blob,
+        "tool": tool,
+    }
+    line = (json.dumps(record, ensure_ascii=False) + "\n").encode("utf-8", "replace")
+    with store.locked(path), open(path, "ab") as f:
+        f.write(line)
+
+
+def on_pre_tool(store, tasks_mod, key: str, root: str, data: dict) -> None:
+    """고치기 직전: 그 차례에 그 파일을 처음 고칠 때만 지금 내용을 넣는다.
+    없던 파일이면 blob None."""
+    target = _target(store, data, root)
+    if target is None:
+        return
+    full, rel, worktree = target
+    if not _first_in_turn(
+        store, key, data.get("session_id"), data.get("prompt_id"), f"{worktree or ''}:{rel}"
+    ):
+        return
+    snap = _snap()
+    content = snap.read_file(full)
+    blob = snap.put(store.project_dir(key), content) if content is not None else None
+    _, doing = _turn(store, tasks_mod, key, data)
+    task = doing[0] if len(doing) == 1 else None
+    _snapshot(store, snap, key, data, task, rel, worktree, "before", blob, data.get("tool_name"))
+
+
+def on_post_tool(store, tasks_mod, key: str, root: str, data: dict) -> None:
+    if data.get("tool_name") == "Bash":
+        on_post_bash(store, tasks_mod, key, root, data)
+        return
+    target = _target(store, data, root)
+    if target is None:
+        return
+    full, rel, worktree = target
+    name, doing = _turn(store, tasks_mod, key, data)
+    task = doing[0] if len(doing) == 1 else None
     response = data.get("tool_response") or {}
     op = "create" if isinstance(response, dict) and response.get("type") == "create" else "modify"
-    store.append_activity(
-        key,
-        {
-            "at": now(),
-            "session": sid,
-            "prompt": prompt_id,
-            "agent": data.get("agent_id"),  # 서브에이전트가 고쳤으면 그 번호
-            # 그 세션이 이때 진행 중이던 할 일 — 한 세션이 T-1 을 끝내고 T-2 를 해도 나눌 수 있게.
-            # 없거나 여럿이면 어디에 붙일지 모르므로 비운다
-            "task": doing[0] if len(doing) == 1 else None,
-            "op": op,
-            "path": rel,
-            "worktree": worktree,
-        },
-    )
+    _record(store, key, data, task, op, rel, worktree, None)
+    with _snapshot_errors():
+        snap = _snap()
+        content = snap.read_file(full)
+        blob = snap.put(store.project_dir(key), content) if content is not None else None
+        tool = data.get("tool_name")
+        _snapshot(store, snap, key, data, task, rel, worktree, "after", blob, tool)
+    _remind_once(store, key, data, name, doing)
+
+
+def on_post_bash(store, tasks_mod, key: str, root: str, data: dict) -> None:
+    """셸 명령이 바꾼 파일 (Claude 가 결과에 남긴 bashEditDiff). 직전 내용은 미리 뜰 수 없어,
+    그 차례에 처음 바뀐 파일이면 지금 내용에 바뀐 부분을 거꾸로 적용해 만든다.
+    맞지 않으면 unknown."""
+    snap = _snap()
+    name, doing = _turn(store, tasks_mod, key, data)
+    task = doing[0] if len(doing) == 1 else None
+    project_dir = store.project_dir(key)
+    changed = False
+    for f in snap.bash_files(data.get("tool_response")):
+        where = store.relative_in_project(f["filePath"], root)
+        if where is None:
+            continue
+        rel, worktree = where
+        content = snap.read_file(f["filePath"])
+        if content is None:
+            continue  # 지워진 파일 — 비교할 이후가 없다
+        hunks = f.get("hunks") if isinstance(f.get("hunks"), list) else []
+        created = bool(hunks) and all(int(h.get("oldLines", 1)) == 0 for h in hunks)
+        _record(store, key, data, task, "create" if created else "modify", rel, worktree, "Bash")
+        changed = True
+        with _snapshot_errors():
+            spot = f"{worktree or ''}:{rel}"
+            if _first_in_turn(store, key, data.get("session_id"), data.get("prompt_id"), spot):
+                before = _before_from_hunks(snap, project_dir, content, hunks, created)
+                _snapshot(store, snap, key, data, task, rel, worktree, "before", before, "Bash")
+            after = snap.put(project_dir, content)
+            _snapshot(store, snap, key, data, task, rel, worktree, "after", after, "Bash")
+    if changed:
+        _remind_once(store, key, data, name, doing)
+
+
+@contextlib.contextmanager
+def _snapshot_errors():
+    """스냅샷이 실패해도(git 이 없음 · 디스크 등) 변경 기록과 알림은 해야 한다.
+    오류만 남기고 넘어간다."""
+    try:
+        yield
+    except Exception:
+        with contextlib.suppress(Exception):
+            log_error(["devdash_hook.py", "snapshot"])
+
+
+def _before_from_hunks(snap, project_dir, content: bytes, hunks: list, created: bool):
+    """바뀐 부분을 거꾸로 적용한 직전 내용의 blob. 새로 만든 파일이면 None, 못 만들면 'unknown'."""
+    if created:
+        return None
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        return "unknown"
+    before = snap.reverse_patch(text, hunks)
+    if before is None and "\r\n" in text:
+        # 바뀐 부분의 줄에는 줄 끝 \r 이 없을 수 있다 — 줄바꿈을 맞춰 한 번 더
+        before = snap.reverse_patch(text.replace("\r\n", "\n"), hunks)
+        before = before.replace("\n", "\r\n") if before is not None else None
+    if before is None:
+        return "unknown"
+    return snap.put(project_dir, before.encode("utf-8"))
+
+
+def _record(store, key: str, data: dict, task, op: str, rel: str, worktree, tool) -> None:
+    record = {
+        "at": now(),
+        "session": data.get("session_id"),
+        "prompt": data.get("prompt_id"),
+        "agent": data.get("agent_id"),  # 서브에이전트가 고쳤으면 그 번호
+        # 그 세션이 이때 진행 중이던 할 일 — 한 세션이 T-1 을 끝내고 T-2 를 해도 나눌 수 있게.
+        # 없거나 여럿이면 어디에 붙일지 모르므로 비운다
+        "task": task,
+        "op": op,
+        "path": rel,
+        "worktree": worktree,
+    }
+    if tool:
+        record["tool"] = (
+            tool  # 셸 명령으로 바뀐 파일 (파일 도구는 적지 않는다 — 옛 기록과 같은 모양)
+        )
+    store.append_activity(key, record)
+
+
+def _remind_once(store, key: str, data: dict, name, doing: list[str]) -> None:
     # 서브에이전트는 할 일을 쓰지 않으므로(기록 규칙) 알리지 않는다. 이름이 없으면 기록 규칙을
     # 모르는 세션이다 (알림을 받기 전)
+    sid, prompt_id = data.get("session_id"), data.get("prompt_id")
     if (
         name
         and prompt_id
@@ -360,9 +514,15 @@ def _read_json(path: Path) -> dict:
 
 
 def run(event: str, data: dict) -> None:
-    # 파일 도구가 아닌 PostToolUse 는 프로젝트를 찾기(git 호출) 전에 끝낸다.
-    # 모든 세션에서 도는 훅이다
-    if event == "PostToolUse" and data.get("tool_name") not in FILE_TOOLS:
+    # 파일을 바꾸지 않는 도구는 프로젝트를 찾기(git 호출) 전에 끝낸다. 모든 세션에서 도는 훅이다
+    tool = data.get("tool_name")
+    if event == "PreToolUse" and tool not in FILE_TOOLS:
+        return
+    if (
+        event == "PostToolUse"
+        and tool not in FILE_TOOLS
+        and (tool != "Bash" or not _snap().bash_files(data.get("tool_response")))
+    ):
         return
     store, tasks_mod = _store()
     found = store.find_project(os.environ.get("CLAUDE_PROJECT_DIR"), data.get("cwd"))
@@ -375,6 +535,8 @@ def run(event: str, data: dict) -> None:
         on_session_start(store, key, data)
     elif event == "SessionEnd":
         on_session_end(store, key, data)
+    elif event == "PreToolUse":
+        on_pre_tool(store, tasks_mod, key, root, data)
     elif event == "PostToolUse":
         on_post_tool(store, tasks_mod, key, root, data)
     elif event == "Stop":
