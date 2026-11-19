@@ -228,6 +228,25 @@ def test_git_제외_폴더_중_의존성_캐시_다른_저장소는_들어가지
     assert ignored == {"a.env", "logs/app.log", "logs/old/1.log", ".claude/settings.local.json"}
 
 
+def test_git_제외_폴더가_안쪽_독립_저장소면_그_파일은_보이고_git_폴더는_빠진다(client, env):
+    """공개 저장소 안에 따로 둔 비공개 문서 저장소 — `.git` 이 폴더다.
+    작업용 복사본(`.git` 이 파일)은 위 시험처럼 계속 빠진다."""
+    repo = env["repo"]
+    (repo / ".gitignore").write_text(".private/\n", "utf-8")
+    private = repo / ".private"
+    (private / "notes").mkdir(parents=True)
+    git("init", "-q", cwd=private)
+    (private / "가이드.md").write_text("x", encoding="utf-8")
+    (private / "notes" / "a.md").write_text("x", encoding="utf-8")
+    key = add(client, env)
+    ignored = {
+        f["path"]
+        for f in client.get(f"/api/projects/{key}/files").json()["files"]
+        if f.get("ignored")
+    }
+    assert ignored == {".private/가이드.md", ".private/notes/a.md"}
+
+
 def test_git_이_아니면_폴더를_훑되_무거운_폴더는_건너뛴다(client, env):
     plain = env["tmp"] / "plain"
     (plain / "node_modules" / "x").mkdir(parents=True)

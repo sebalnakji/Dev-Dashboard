@@ -58,12 +58,20 @@ def _skip_dir(name: str) -> bool:
     return name in WALK_SKIP or name.endswith(".egg-info")
 
 
+def _worktree(path: str) -> bool:
+    """git 작업용 복사본(worktree)인가. 그 `.git` 은 폴더가 아니라 본 저장소를 가리키는 파일이다.
+
+    안쪽의 독립 저장소(`.git` 이 폴더 — 예: 공개 저장소 안에 따로 둔 비공개 문서 저장소)는
+    이 프로젝트의 파일이라 보여 준다. 작업용 복사본은 같은 파일이 두 번 보이므로 뺀다."""
+    return os.path.isfile(os.path.join(path, ".git"))
+
+
 def _ignored_files(root: str) -> tuple[list[str], bool]:
     """git 제외 파일들 (.env · CLAUDE.local.md · 로컬 DB …). 상한을 넘으면 (앞부분, True).
 
     [파일] 보기는 git 이 아니라 이 PC 의 작업 폴더를 보므로 git 에 올리지 않는 파일도 보인다 (T-14,
-    사용자 결정). 다만 의존성 · 빌드 · 캐시 폴더(_skip_dir)와 안에 .git 이 있는 폴더(작업용 복사본 ·
-    안쪽의 다른 저장소 — 이 프로젝트의 파일이 아니다)는 들어가지 않는다.
+    사용자 결정). 다만 의존성 · 빌드 · 캐시 폴더(_skip_dir)와 작업용 복사본(_worktree)은
+    들어가지 않는다. 안쪽의 독립 저장소는 들어간다 (그 `.git` 폴더는 _skip_dir 이 뺀다).
     git 이 알려 주는 제외 폴더 안만 훑으므로 저장소 전체를 다시 훑지 않는다."""
     listed = _git(
         root, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"
@@ -77,12 +85,12 @@ def _ignored_files(root: str) -> tuple[list[str], bool]:
             continue
         if not entry.endswith("/"):
             out.add(entry)
-        elif not os.path.exists(os.path.join(root, entry, ".git")):
+        elif not _worktree(os.path.join(root, entry)):
             for dirpath, dirnames, filenames in os.walk(os.path.join(root, entry)):
                 dirnames[:] = [
                     d
                     for d in dirnames
-                    if not _skip_dir(d) and not os.path.exists(os.path.join(dirpath, d, ".git"))
+                    if not _skip_dir(d) and not _worktree(os.path.join(dirpath, d))
                 ]
                 rel = os.path.relpath(dirpath, root).replace("\\", "/")
                 out.update(f"{rel}/{f}" for f in filenames)
