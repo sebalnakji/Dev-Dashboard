@@ -296,6 +296,49 @@ def context(session_id: str) -> dict:
     return value
 
 
+TITLE_MARK = b'"custom-title"'
+
+_title_cache: dict[str, tuple[tuple[int, int], str | None]] = {}  # 기록 파일 → (크기 · 시각, 이름)
+
+
+def title(session_id: str) -> str | None:
+    """대화 기록에 남은 마지막 세션 이름(`/rename` · `--name` 이 남기는 custom-title). 없으면 None.
+
+    Claude 관리자가 세션을 스스로 다시 띄울 때는 실행 옵션의 --name 만 보고 이 이름을 읽지 않아,
+    --name 없이 이름을 붙인 세션은 `claude agents` 이름이 목록 번호가 된다.
+    그런 세션을 알아보게 할 때 쓴다.
+    끝에서부터 읽고, 파일이 그대로면 기억해 둔 값을 준다."""
+    with _compactions_lock:
+        path = _context_paths.get(session_id)
+    try:
+        if path is None or not path.exists():
+            path = transcript(session_id)
+            if path is None:
+                return None
+        st = path.stat()
+        stamp = (st.st_size, st.st_mtime_ns)
+        with _compactions_lock:
+            hit = _title_cache.get(str(path))
+        if hit and hit[0] == stamp:
+            return hit[1]
+        value = None
+        for raw in _lines_backward(path):
+            if TITLE_MARK not in raw:
+                continue
+            try:
+                entry = json.loads(raw)
+            except ValueError:
+                continue
+            if entry.get("type") == "custom-title" and isinstance(entry.get("customTitle"), str):
+                value = entry["customTitle"].strip() or None
+                break
+    except OSError:
+        return None
+    with _compactions_lock:
+        _title_cache[str(path)] = (stamp, value)
+    return value
+
+
 def context_tokens(path: Path) -> int | None:
     """지금 컨텍스트에 든 토큰 수 = 마지막 답을 만들 때 모델에 들어간 입력(새 입력 + 캐시).
     서브에이전트의 답은 빼고 본다. 아직 답이 없으면 None.

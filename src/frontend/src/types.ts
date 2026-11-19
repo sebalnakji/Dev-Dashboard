@@ -108,6 +108,8 @@ export interface SessionRow {
   name: string
   /** Claude 쪽 이름이 있는가 */
   named: boolean
+  /** Claude 목록에서 이름을 잃어(번호로 나옴) 대화 기록의 이름을 보인다 */
+  lostName: boolean
   /** null 이면 "분류 안 됨" */
   group: string | null
   order: number | null

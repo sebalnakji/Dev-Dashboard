@@ -613,9 +613,14 @@ function SessionLine({
         }`}
       >
         <span
-          title={row.cwd}
+          title={
+            row.lostName
+              ? `Claude 목록에서 이름을 잃은 세션입니다 (대화 기록에 남은 이름을 보입니다).\n` +
+                `앱에서 이 세션을 열어 /rename 하면 되돌아옵니다.\n${row.cwd}`
+              : row.cwd
+          }
           className={`min-w-0 flex-1 truncate ${state === 'off' ? 'text-gray-400' : 'text-gray-100'} ${
-            row.named ? '' : 'italic'
+            row.named && !row.lostName ? '' : 'italic'
           }`}
         >
           {row.name}

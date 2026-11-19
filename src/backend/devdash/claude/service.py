@@ -45,9 +45,28 @@ NO_TALK_STOP = (
 NO_TALK_START = "아직 대화가 없는 세션이라 Claude 가 곧 다시 켭니다. 잠시 뒤 켜진 것으로 보입니다"
 
 
+def lost_name(row: dict, conversation: str) -> str | None:
+    """Claude 목록에서 이름을 잃은 세션의 원래 이름 — 목록 이름이 목록 번호로 나오는데 대화 기록에는
+    이름(custom-title)이 남아 있으면 그 이름. 아니면 None.
+
+    Claude 관리자가 스스로 다시 띄울 때는 실행 옵션의 --name 만 봐서, --name 없이 붙인 이름
+    (대화형일 때 /rename 등)은 목록에서 번호로 바뀐다. 대화 기록의 이름은 Claude 쪽 이름이라
+    대시보드만의 별명이 아니다."""
+    if has_name(row) or not conversation:
+        return None
+    return chat.title(conversation)
+
+
+def has_name(row: dict) -> bool:
+    """Claude 쪽 이름이 있는가. 켜진 세션은 이름이 없으면 목록 번호를 이름 자리에 넣어 준다."""
+    return bool(row.get("name")) and row.get("name") != row.get("id")
+
+
 def display_name(row: dict) -> str:
-    """Claude 쪽 이름. 비었으면 '폴더 이름 · 번호 앞 8자리' — 이름 없는 세션도 가려 볼 수 있게."""
-    return row.get("name") or f"{agents.folder_label(row.get('cwd') or '')} · {row['id'][:8]}"
+    """Claude 쪽 이름. 없으면 '폴더 이름 · 번호 앞 8자리' — 이름 없는 세션도 가려 볼 수 있게."""
+    if has_name(row):
+        return row["name"]
+    return f"{agents.folder_label(row.get('cwd') or '')} · {row['id'][:8]}"
 
 
 class SessionService:
@@ -131,10 +150,13 @@ class SessionService:
     def _row(self, row: dict, data: dict) -> dict:
         sid = row["id"]
         conversation = self.conversation(row) or ""
+        lost = lost_name(row, conversation)
         out = {
             "id": sid,
-            "name": display_name(row),
-            "named": bool(row.get("name")),
+            "name": lost or display_name(row),
+            "named": has_name(row) or bool(lost),
+            # 목록에서 이름을 잃어 대화 기록의 이름을 보인다 (화면은 기울이고 /rename 을 안내)
+            "lostName": bool(lost),
             "group": registry.group_of(data, sid),
             "order": registry.order_of(data, sid),
             "project": registry.project_of(data, sid),
@@ -359,8 +381,10 @@ class SessionService:
             data["deleted"].append(
                 {
                     "id": sid,
-                    # 이름을 잃은 세션은 목록 이름이 번호다 — 그것을 이름으로 되살리지 않는다
-                    "name": row.get("name") if row.get("name") not in (None, "", sid) else "",
+                    # 이름을 잃은 세션은 목록 이름이 번호다 — 번호가 아니라 대화 기록의 이름을 적어
+                    # 복원 때 --name 으로 되살린다
+                    "name": (row["name"] if has_name(row) else lost_name(row, conversation or ""))
+                    or "",
                     "flags": flags,
                     "group": registry.group_of(data, sid),
                     "cwd": row.get("cwd") or "",

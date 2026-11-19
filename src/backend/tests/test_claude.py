@@ -268,6 +268,7 @@ def svc(tmp_path, monkeypatch):
     live: list[dict] = []
     calls: list[tuple] = []
     monkeypatch.setattr(chat, "PROJECTS", tmp_path / "claude-projects")
+    _fresh_chat_cache(monkeypatch)
     monkeypatch.setattr(agents, "all_sessions", lambda: every)
     monkeypatch.setattr(agents, "live_sessions", lambda: live)
     monkeypatch.setattr(agents, "in_roster", lambda conversation: False)
@@ -290,6 +291,12 @@ def svc(tmp_path, monkeypatch):
     monkeypatch.setattr(service, "LIST_CACHE_SECONDS", -1)
     s.every, s.live, s.calls, s.cwd = every, live, calls, cwd
     return s
+
+
+def _fresh_chat_cache(monkeypatch) -> None:
+    """chat 은 기록 파일 위치 · 결과를 대화 번호로 기억한다 — 앞 시험의 파일을 들고 있지 않게 비운다."""
+    for name in ("_context_paths", "_context_cache", "_title_cache"):
+        monkeypatch.setattr(chat, name, {})
 
 
 def run_background(svc) -> None:
@@ -461,6 +468,56 @@ def _deleted(svc, conversation=AFTER_CLEAR_A, group="G") -> None:
         )
 
     svc.edit(change)
+
+
+def _transcript(svc, conversation: str, *titles: str) -> None:
+    """시험용 대화 기록. titles 는 /rename · --name 이 남기는 custom-title 줄들 (나중 것이 마지막)."""
+    folder = svc.path.parent / "claude-projects" / "C--proj"
+    folder.mkdir(parents=True, exist_ok=True)
+    lines = [json.dumps({"type": "user", "message": {"content": "안녕"}})]
+    lines += [json.dumps({"type": "custom-title", "customTitle": t}) for t in titles]
+    (folder / f"{conversation}.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_목록에서_이름을_잃은_세션은_대화_기록의_마지막_이름으로_보인다(svc):
+    """Claude 가 스스로 다시 띄우면 --name 없이 붙인 이름은 목록 번호가 된다."""
+    svc.every[0]["name"] = ID_A  # 목록 이름이 번호로 나온다
+    _transcript(svc, FIRST_A, "옛 이름", "alpha")
+    row = names(svc)["alpha"]
+    assert row["lostName"] and row["named"] and row["id"] == ID_A
+
+
+def test_이름도_대화_기록의_이름도_없으면_폴더와_번호로(svc):
+    svc.every[0]["name"] = ID_A  # 켜진 세션은 이름이 없으면 번호를 이름 자리에 넣어 준다
+    _transcript(svc, FIRST_A)
+    row = names(svc)["proj · aaaaaaaa"]
+    assert not row["lostName"] and not row["named"]
+
+
+def test_이름을_잃은_세션을_지우면_대화_기록의_이름으로_복원_정보를_남긴다(svc, monkeypatch):
+    """복원 때 --name 으로 되살리게 — 번호를 이름으로 적지 않는다."""
+    monkeypatch.setattr(agents, "remove", lambda sid: None)
+    svc.every[0]["name"] = ID_A
+    _transcript(svc, FIRST_A, "alpha")
+    svc.delete(svc.entry(ID_A))
+    run_background(svc)
+    assert registry.load(svc.path)["deleted"][0]["name"] == "alpha"
+
+
+def test_대화_기록의_마지막_이름을_읽는다(tmp_path, monkeypatch):
+    monkeypatch.setattr(chat, "PROJECTS", tmp_path)
+    _fresh_chat_cache(monkeypatch)
+    (tmp_path / "C--p").mkdir()
+    lines = [
+        {"type": "custom-title", "customTitle": "처음"},
+        {"type": "user", "message": {"content": "custom-title 이라는 글자가 든 질문"}},
+        {"type": "custom-title", "customTitle": "dev-dashboard"},
+        {"type": "assistant", "message": {"content": "답"}},
+    ]
+    path = tmp_path / "C--p" / f"{FIRST_A}.jsonl"
+    path.write_text("\n".join(json.dumps(x, ensure_ascii=False) for x in lines), encoding="utf-8")
+    assert chat.title(FIRST_A) == "dev-dashboard"
+    assert chat.title(FIRST_B) is None
 
 
 def test_대화_파일이_없으면_복원을_막는다(svc):
