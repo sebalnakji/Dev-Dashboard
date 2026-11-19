@@ -4,6 +4,7 @@ devdash setup           처음 설치 (화면 빌드 · 빈 서버 설정 · 묻
 devdash start           대시보드를 뒤에서 띄우고 브라우저를 연다
 devdash stop            start 로 띄운 대시보드를 끈다
 devdash uninstall       setup 이 바꾼 Claude Code 설정을 되돌린다 (묻고)
+devdash check-claude    지금 Claude Code 가 대시보드가 기대는 동작 그대로인지 시험한다 (몇 분)
 devdash list            설정된 서버 목록을 본다
 devdash check           접속해서 지표를 한 번 수집해본다 (진단용)
 devdash serve           웹 대시보드를 이 창에서 띄운다
@@ -50,6 +51,10 @@ def main(argv: list[str] | None = None) -> int:
     start.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"포트. 기본 {DEFAULT_PORT}")
     sub.add_parser("stop", help="start 로 띄운 대시보드를 끈다")
     sub.add_parser("uninstall", help="setup 이 바꾼 Claude Code 설정을 되돌린다")
+    sub.add_parser(
+        "check-claude",
+        help="Claude Code 호환 시험 — 시험 폴더(~/.devdash/compat)에서 시험 세션을 띄워 확인한다",
+    )
 
     sub.add_parser("list", help="설정된 서버 목록을 보여준다")
 
@@ -67,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     use_utf8_when_redirected()
-    if args.command in ("setup", "uninstall", "start", "stop"):
+    if args.command in ("setup", "uninstall", "start", "stop", "check-claude"):
         # 사람이 콘솔에서 결과를 보는 명령이라 로그 파일을 만들지 않는다
         return _cmd_install(args)
 
@@ -102,6 +107,10 @@ def _cmd_install(args: argparse.Namespace) -> int:
             return install.uninstall()
         if args.command == "start":
             return launch.start(args.port)
+        if args.command == "check-claude":
+            from devdash import compat
+
+            return compat.main()
         return launch.stop()
     except KeyboardInterrupt:
         return 1

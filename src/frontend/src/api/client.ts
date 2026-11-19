@@ -1,6 +1,7 @@
 import type {
   ActionResult,
   ChatResponse,
+  CompatStatus,
   CommitDetail,
   CommitSummary,
   ContainerLogs,
@@ -83,6 +84,8 @@ export const createSession = (body: { cwd: string; name: string; group: string |
   sendJson('POST', '/api/claude/sessions', body)
 
 export const fetchFolders = () => getJson<FolderChoice[]>('/api/claude/folders')
+
+export const fetchCompat = () => getJson<CompatStatus>('/api/claude/compat')
 
 export const addGroup = (name: string) => sendJson('POST', '/api/claude/groups', { name })
 

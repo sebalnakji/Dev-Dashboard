@@ -163,6 +163,15 @@ export interface SessionsView {
   failures: { error: string; errorAt: number }[]
 }
 
+/** Claude Code 호환 시험 (devdash check-claude) */
+export interface CompatStatus {
+  /** 지금 깔린 Claude Code 버전. 못 읽으면 null */
+  version: string | null
+  /** 마지막으로 모든 항목을 통과한 버전 */
+  passedVersion: string | null
+  lastRun: { version: string | null; at: string; passed: boolean } | null
+}
+
 /** 새 세션의 폴더 후보. project 는 프로젝트 탭에 등록된 폴더 */
 export interface FolderChoice {
   path: string

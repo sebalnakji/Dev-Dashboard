@@ -17,7 +17,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from devdash import records
+from devdash import compat, records
 from devdash.claude import agents, chat, registry
 from devdash.claude.service import Result, SessionService
 from devdash.local import app_memory, memory_status
@@ -74,6 +74,12 @@ def session_chat(request: Request, key: str, limit: int = 10) -> JSONResponse:
     if path is None:
         return JSONResponse({"messages": [], "more": False})
     return JSONResponse(chat.chat(path, limit))
+
+
+@router.get("/claude/compat")
+def compat_status() -> dict:
+    """지금 Claude Code 버전과 마지막으로 호환 시험을 통과한 버전. 다르면 세션 칸이 알린다."""
+    return compat.status()
 
 
 # --- 세션 동작 ---

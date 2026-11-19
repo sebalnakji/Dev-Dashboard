@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type DragEve
 import {
   addGroup,
   deleteGroup,
+  fetchCompat,
   fetchSessions,
   patchGroup,
   placeSession,
@@ -14,7 +15,14 @@ import { Column, ColumnTitle } from '../components/Column'
 import { ContextMeter } from '../components/ContextMeter'
 import { BUTTON, OFFLINE } from '../components/styles'
 import { useNow } from '../hooks/useNow'
-import type { ActionResult, DeletedSession, SessionRow, SessionState, SessionsView } from '../types'
+import type {
+  ActionResult,
+  CompatStatus,
+  DeletedSession,
+  SessionRow,
+  SessionState,
+  SessionsView,
+} from '../types'
 import { NameModal, NewSessionModal } from './SessionDialogs'
 
 const REFRESH_MS = 3000
@@ -23,6 +31,8 @@ const NOTICE_MS = 4000
 const FAIL_NOTICE_MS = 10000
 /** 서버에 저장하지 않는 묶음(분류 안 됨 · 대화형 · 삭제한 세션)의 접힘. 이 브라우저만 기억한다 */
 const CLOSED_KEY = 'closedSections'
+/** Claude Code 버전은 자주 바뀌지 않는다 — 5분마다 본다 (서버도 10분 기억한다) */
+const COMPAT_MS = 5 * 60 * 1000
 
 /** 화면 안에서 "분류 안 됨"을 가리키는 열쇠. 그룹 이름은 비어 있을 수 없어 겹치지 않는다 */
 const UNGROUPED = ''
@@ -56,6 +66,7 @@ interface DropAt {
  */
 export function SessionPanel() {
   const [view, setView] = useState<SessionsView | null>(null)
+  const [compat, setCompat] = useState<CompatStatus | null>(null)
   const [offline, setOffline] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [pending, setPending] = useState<Record<string, SessionState>>({})
@@ -96,6 +107,20 @@ export function SessionPanel() {
       setOffline(true)
     }
   }, [showNotice])
+
+  useEffect(() => {
+    const check = () => {
+      fetchCompat()
+        .then(setCompat)
+        .catch(() => setCompat(null))
+    }
+    const first = window.setTimeout(check, 0)
+    const timer = window.setInterval(check, COMPAT_MS)
+    return () => {
+      window.clearTimeout(first)
+      window.clearInterval(timer)
+    }
+  }, [])
 
   useEffect(() => {
     // 첫 읽기도 타이머로 미룬다 — 효과 안에서 곧바로 상태를 바꾸지 않게 (react 검사 규칙)
@@ -259,6 +284,7 @@ export function SessionPanel() {
       }
     >
       {offline && <p className="mb-3.5 rounded-md bg-[#3a2621] px-2.5 py-2 text-xs text-[#f0b8a4]">{OFFLINE}</p>}
+      <CompatNotice status={compat} />
       {notice && (
         <p className="mb-3.5 whitespace-pre-line rounded-md bg-btn px-2.5 py-2 text-xs text-gray-100">{notice}</p>
       )}
@@ -426,6 +452,21 @@ export function SessionPanel() {
       )}
     </Column>
   )
+}
+
+/**
+ * 대시보드가 기대는 Claude Code 동작(목록 모양 · 이어 열기 규칙 · 대화 기록 형식)은 공식 계약이 아니라
+ * 버전마다 바뀔 수 있다. 지금 버전이 마지막으로 호환 시험을 통과한 버전과 다르면 알린다.
+ */
+function CompatNotice({ status }: { status: CompatStatus | null }) {
+  if (!status?.version || status.version === status.passedVersion) return null
+  const failedNow = status.lastRun?.version === status.version && !status.lastRun.passed
+  const text = failedNow
+    ? `Claude Code ${status.version} 호환 시험에서 실패한 항목이 있습니다. 세션 연결 · 이어 열기가 기대와 다르게 움직일 수 있습니다. 결과: ~/.devdash/compat.json`
+    : `시험하지 않은 Claude Code 버전입니다 (지금 ${status.version}` +
+      (status.passedVersion ? `, 마지막 통과 ${status.passedVersion})` : ')') +
+      '. 터미널에서 devdash check-claude 를 실행해 확인해 주세요 (몇 분 걸립니다).'
+  return <p className="mb-3.5 rounded-md bg-[#3a2621] px-2.5 py-2 text-xs text-[#f0b8a4]">{text}</p>
 }
 
 function SectionHeader({
