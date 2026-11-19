@@ -477,6 +477,82 @@ def test_작업의_바뀐_파일은_그_작업_커밋_전후로_비교한다(cli
     assert hunk["lines"] == [["-", "a"], ["+", "a"], ["+", "b"], ["+", "c"]]
 
 
+snap = records.snap
+
+
+def snapshots(key: str, path: str, task: str, *steps: tuple[str, str | None]) -> None:
+    """훅이 남겼을 스냅샷을 차례로 적는다. steps: ("before" | "after", 내용 또는 None(없던 파일))."""
+    project = store.project_dir(key)
+    log = snap.log_path(project)
+    with open(log, "a", encoding="utf-8") as f:
+        for when, text in steps:
+            blob = (
+                text
+                if text == "unknown"
+                else (snap.put(project, text.encode()) if text is not None else None)
+            )
+            entry = {"task": task, "path": path, "when": when, "blob": blob, "prompt": "p"}
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def test_스냅샷이_있으면_커밋과_상관없이_고치기_직전에서_마지막_직후로(client, env):
+    """팀 저장소처럼 커밋 메시지에 [T-n] 이 없어도 된다. 작업 전에 커밋 안 된 변경이 있던 파일도
+    '이전' 은 그 작업이 고치기 직전 내용이다."""
+    key = add(client, env)
+    write_task(key, 4, "done", "s")
+    (env["repo"] / "src" / "a.py").write_text("a\nb\n", encoding="utf-8")
+    git("commit", "-qam", "feat: 무엇을 왜 (번호 없음)", cwd=env["repo"])
+    snapshots(
+        key,
+        "src/a.py",
+        "T-4",
+        ("before", "커밋 안 된 변경\n"),
+        ("after", "첫 수정\n"),
+        ("before", "첫 수정\n"),
+        ("after", "마지막\n"),
+    )
+    d = client.get(f"/api/projects/{key}/tasks/4/diff", params={"path": "src/a.py"}).json()
+    assert d["snapshot"] and not d["beforeUnknown"] and d["commits"] == []
+    (hunk,) = d["hunks"]
+    assert hunk["lines"] == [["-", "커밋 안 된 변경"], ["+", "마지막"]]
+
+
+def test_스냅샷으로_새로_만든_파일은_전부_더한_줄이다(client, env):
+    key = add(client, env)
+    write_task(key, 4, "doing", "s")
+    snapshots(key, "src/new.py", "T-4", ("before", None), ("after", "새\n파일\n"))
+    d = client.get(f"/api/projects/{key}/tasks/4/diff", params={"path": "src/new.py"}).json()
+    assert d["snapshot"] and d["hunks"][0]["lines"] == [["+", "새"], ["+", "파일"]]
+
+
+def test_직전_내용을_모르면_지금_내용만_보이고_알린다(client, env):
+    key = add(client, env)
+    write_task(key, 4, "doing", "s")
+    snapshots(key, "src/a.py", "T-4", ("before", "unknown"), ("after", "지금\n"))
+    d = client.get(f"/api/projects/{key}/tasks/4/diff", params={"path": "src/a.py"}).json()
+    assert d["snapshot"] and d["beforeUnknown"] and d["hunks"][0]["lines"] == [["+", "지금"]]
+
+
+def test_git_이_아닌_폴더도_스냅샷으로_비교한다(client, env):
+    plain = env["tmp"] / "plain"
+    plain.mkdir()
+    (plain / "memo.md").write_text("x", encoding="utf-8")
+    key = client.post("/api/projects", json={"root": str(plain)}).json()["key"]
+    write_task(key, 1, "done", "s")
+    snapshots(key, "memo.md", "T-1", ("before", "처음\n"), ("after", "고침\n"))
+    d = client.get(f"/api/projects/{key}/tasks/1/diff", params={"path": "memo.md"}).json()
+    assert d["snapshot"] and d["hunks"][0]["lines"] == [["-", "처음"], ["+", "고침"]]
+
+
+def test_다른_작업의_스냅샷은_섞이지_않는다(client, env):
+    key = add(client, env)
+    write_task(key, 4, "done", "s")
+    snapshots(key, "src/a.py", "T-4", ("before", "1\n"), ("after", "2\n"))
+    snapshots(key, "src/a.py", "T-5", ("before", "2\n"), ("after", "3\n"))
+    d = client.get(f"/api/projects/{key}/tasks/4/diff", params={"path": "src/a.py"}).json()
+    assert d["hunks"][0]["lines"] == [["-", "1"], ["+", "2"]]
+
+
 def test_진행_중_작업은_커밋_안_된_변경과_새_파일까지_보인다(client, env):
     key = add(client, env)
     repo = env["repo"]

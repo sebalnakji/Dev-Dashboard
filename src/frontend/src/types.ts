@@ -350,6 +350,11 @@ export interface FileDiff {
 /** 작업 문서의 바뀐 파일 비교 (T-19). 무엇을 합친 비교인지: [T-n] 커밋들(짧은 번호, 오래된 것부터) + 커밋 안 된 변경.
  * 둘 다 없으면 비교할 것이 없다 — 화면이 [파일] 보기로 연다 */
 export interface TaskFileDiff extends FileDiff {
+  /** 훅이 남긴 스냅샷으로 만든 비교 (그 작업이 고치기 직전 → 마지막으로 고친 직후) */
+  snapshot: boolean
+  /** 직전 내용을 알 수 없어 지금 내용만 보인다 (셸로 고친 파일 중 되돌리지 못한 것) */
+  beforeUnknown: boolean
+  /** 스냅샷이 없는 옛 기록: [T-번호] 커밋으로 찾은 비교 */
   commits: string[]
   uncommitted: boolean
 }

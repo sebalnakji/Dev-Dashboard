@@ -27,6 +27,7 @@ from devdash.local import run_bounded
 
 # isort: split
 # 위의 devdash.home 이 플러그인 스크립트 폴더를 import 경로에 올린 뒤에야 불러올 수 있다
+import devdash_snap as snap
 import devdash_store as store
 import devdash_tasks as tasks
 
@@ -882,17 +883,53 @@ def commit_diff(
 # --- 작업 문서의 바뀐 파일: 이 작업이 그 파일을 어떻게 바꿨나 (T-19) ---
 
 
-def task_diff(key: str, number: int, path: str, full: bool = False) -> dict:
-    """작업 문서의 '이 작업에서 바뀐 파일'을 누르면 보이는 이전 · 이후 (사용자 결정, A안).
+def snapshot_diff(key: str, before: str | None, after: str | None, full: bool = False) -> dict:
+    """두 스냅샷(내용 번호)의 비교 (gitdiff.parse 모양). None 은 '없던 파일 · 지운 파일',
+    "unknown" 은 직전 내용을 모름 — 빈 내용과 비교해 지금 내용만 보이고
+    beforeUnknown 으로 알린다."""
+    project_dir = store.project_dir(key)
+    empty = snap.put(project_dir, b"")
+    unknown = before == "unknown"
+    a = empty if before in (None, "unknown") else before
+    b = after or empty
+    out = snap._git(
+        project_dir, "diff", "--no-color", "--no-ext-diff", f"-U{FULL_CONTEXT if full else 3}", a, b
+    ).decode("utf-8", "replace")
+    found = {"snapshot": True, "beforeUnknown": unknown, "commits": [], "uncommitted": False}
+    if len(out.encode("utf-8")) > DIFF_LIMIT:
+        return {**found, "binary": False, "tooLarge": True, "hunks": []}
+    return {**found, **gitdiff.parse(out), "tooLarge": False}
 
-    훅은 고치기 전 내용을 저장하지 않으므로 커밋으로 정한다.
-    기록 규칙이 커밋 제목에 [T-n] 을 붙인다.
+
+def task_diff(key: str, number: int, path: str, full: bool = False) -> dict:
+    """작업 문서의 '이 작업에서 바뀐 파일'을 누르면 보이는 이전 · 이후.
+
+    훅이 남긴 스냅샷이 있으면 그것으로: 이전 = 그 작업이 그 파일을 처음 고치기 직전,
+    이후 = 마지막으로 고친 직후. 커밋 메시지 · HEAD 를 보지 않으므로 팀 저장소의 커밋 규칙이나
+    git 이 아닌 폴더와 상관없고, 작업이 끝난 뒤 파일이 또 바뀌어도 작업 시점 그대로다.
+
+    스냅샷이 없는 옛 기록(이 기능 전에 끝난 작업)은 커밋으로 정한다 — 기록 규칙이 커밋 제목에
+    [T-n] 을 붙인다.
     - 이전: 이 파일을 고친 [T-n] 커밋 중 가장 오래된 것의 직전
     - 이후: 그중 가장 최근 커밋. 진행 중인 작업이고 커밋 안 된 변경이 있으면 지금 파일
     사이에 다른 작업의 커밋이 같은 파일을 고쳤다면 그 변경도 섞인다 (화면이 무엇을 합쳤는지 보인다).
 
-    {"commits": [짧은 번호 …](오래된 것부터), "uncommitted": bool, "binary", "tooLarge", "hunks"}.
-    비교할 것이 없으면 commits 가 비고 uncommitted 가 False — 화면이 [파일] 보기로 연다."""
+    {"snapshot": bool, "beforeUnknown": bool, "commits": [짧은 번호 …](오래된 것부터),
+     "uncommitted": bool, "binary", "tooLarge", "hunks"}.
+    비교할 것이 없으면 snapshot · uncommitted 가 False 이고 commits 가 빈다 —
+    화면이 [파일] 보기로 연다."""
+    task = f"T-{number}"
+    pair = snap.pair(
+        snap.entries(store.project_dir(key)),
+        lambda e: e.get("task") == task and e.get("path") == path,
+    )
+    if pair is not None:
+        return snapshot_diff(key, *pair, full=full)
+    return {"snapshot": False, "beforeUnknown": False, **_commit_task_diff(key, number, path, full)}
+
+
+def _commit_task_diff(key: str, number: int, path: str, full: bool) -> dict:
+    """스냅샷이 없는 옛 기록: [T-n] 커밋으로 정한 이전 · 이후."""
     root = project(key)["root"]
     log = _git(root, "--literal-pathspecs", "log", "--format=%H%x1f%s", "--", path) or ""
     mine = []

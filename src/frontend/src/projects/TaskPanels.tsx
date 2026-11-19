@@ -164,7 +164,7 @@ export function TaskDoc({
   async function pick(path: string) {
     if (chosen?.path === path) return setChosen(null) // 다시 누르면 닫는다
     const first = await fetchTaskDiff(projectKey, doc.number, path, false).catch(() => null)
-    if (!first || (first.commits.length === 0 && !first.uncommitted)) return onOpenFile(path)
+    if (!first || (!first.snapshot && first.commits.length === 0 && !first.uncommitted)) return onOpenFile(path)
     setChosen({ path, first })
   }
 
@@ -241,15 +241,23 @@ export function TaskDoc({
               load={load}
               note={
                 <span className="flex items-center gap-2">
-                  {/* 무엇을 합친 비교인지 — 사이에 다른 작업의 커밋이 끼었으면 그 변경도 섞인다 */}
-                  <span title={chosen.first.commits.join(', ')}>
-                    {[
-                      chosen.first.commits.length > 0 && `커밋 ${chosen.first.commits.length}개`,
-                      chosen.first.uncommitted && '커밋 안 된 변경',
-                    ]
-                      .filter(Boolean)
-                      .join(' + ')}
-                  </span>
+                  {chosen.first.snapshot ? (
+                    <span title="훅이 남긴 스냅샷으로 비교합니다 (커밋과 상관없이)">
+                      {chosen.first.beforeUnknown
+                        ? '고치기 직전 내용을 알 수 없어 지금 내용만'
+                        : '이 작업이 고치기 직전 → 마지막으로 고친 직후'}
+                    </span>
+                  ) : (
+                    // 무엇을 합친 비교인지 — 사이에 다른 작업의 커밋이 끼었으면 그 변경도 섞인다
+                    <span title={chosen.first.commits.join(', ')}>
+                      {[
+                        chosen.first.commits.length > 0 && `커밋 ${chosen.first.commits.length}개`,
+                        chosen.first.uncommitted && '커밋 안 된 변경',
+                      ]
+                        .filter(Boolean)
+                        .join(' + ')}
+                    </span>
+                  )}
                   <button type="button" onClick={() => onOpenFile(chosen.path)} className="cursor-pointer text-accent hover:underline">
                     파일 열기
                   </button>
