@@ -527,23 +527,20 @@ export function SessionPanel() {
 function CompatNotice({ status }: { status: CompatStatus | null }) {
   if (!status?.version || status.version === status.passedVersion) return null
   const failedNow = status.lastRun?.version === status.version && !status.lastRun.passed
-  // 제목 · 버전 · 할 일을 줄로 나눈다 — 한 문장으로 이어 쓰니 명령어가 묻혀 읽기 어려웠다
+  // 두 줄: 무엇인지 · 할 일. 작게 — 세션 목록을 보는 데 방해되지 않게. 버전은 마우스를 올리면
+  const versions = `지금 ${status.version}` + (status.passedVersion ? ` · 마지막으로 통과한 버전 ${status.passedVersion}` : '')
   return (
-    <div className="mb-3.5 rounded-md bg-[#3a2621] px-3 py-2.5 text-xs leading-relaxed text-[#f0b8a4]">
+    <div title={versions} className="mb-3 rounded-md bg-[#3a2621] px-2.5 py-1.5 text-[11px] leading-snug text-[#f0b8a4]">
       <p className="font-semibold text-[#f6cbb9]">
         {failedNow ? 'Claude Code 호환 시험에서 실패한 항목이 있습니다' : '시험하지 않은 Claude Code 버전입니다'}
       </p>
-      <p className="mt-0.5 tabular-nums text-[#d9a08c]">
-        지금 {status.version}
-        {status.passedVersion && ` · 마지막으로 통과한 버전 ${status.passedVersion}`}
-      </p>
       {failedNow ? (
-        <p className="mt-1.5">
-          세션 연결 · 이어 열기가 기대와 다르게 움직일 수 있습니다. 결과: <Code>~/.devdash/compat.json</Code>
+        <p>
+          결과: <Code>~/.devdash/compat.json</Code>
         </p>
       ) : (
-        <p className="mt-1.5">
-          터미널에서 <Code>devdash check-claude</Code> 를 실행해 확인해 주세요 (몇 분 걸립니다).
+        <p>
+          터미널에서 <Code>devdash check-claude</Code> 실행 (몇 분 걸림)
         </p>
       )}
     </div>
@@ -551,7 +548,7 @@ function CompatNotice({ status }: { status: CompatStatus | null }) {
 }
 
 function Code({ children }: { children: ReactNode }) {
-  return <code className="rounded bg-black/25 px-1 py-px font-mono text-[11px] text-[#f6cbb9]">{children}</code>
+  return <code className="rounded bg-black/25 px-1 font-mono text-[10.5px] text-[#f6cbb9]">{children}</code>
 }
 
 function SectionHeader({
