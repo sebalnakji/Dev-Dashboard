@@ -1,7 +1,7 @@
 /**
  * 백엔드 API 응답 타입.
  *
- * 화면 계약(ADR 0004)을 그대로 옮긴 것이라, 백엔드 페이로드가 바뀌면
+ * 화면 계약을 그대로 옮긴 것이라, 백엔드 페이로드가 바뀌면
  * 여기부터 고쳐야 컴파일이 통과한다. 그게 이 파일을 두는 이유다.
  */
 
@@ -93,7 +93,7 @@ export interface ContainersResponse {
   containers: ContainerRow[]
 }
 
-/* --- Claude 세션 칸 · PC 메모리 칸 (ADR 0005) --- */
+/* --- Claude 세션 칸 · PC 메모리 칸 --- */
 
 /**
  * on       백그라운드로 켜져 있음        off      꺼짐
@@ -200,7 +200,7 @@ export interface ContainerLogs {
   text: string
 }
 
-// --- 프로젝트 탭 (ADR 0007 · 0008) — 백엔드 devdash/records.py 와 1:1 ---
+// --- 프로젝트 탭 — 백엔드 devdash/records.py 와 1:1 ---
 
 export type TaskStatus = 'todo' | 'doing' | 'done'
 
@@ -225,7 +225,7 @@ export interface FileRow {
   createdTask?: string | null
   lastTask?: string | null
   changes?: number
-  /** git 에 올리지 않는 파일 (.env · CLAUDE.local.md …). 트리에 흐리게 'git 제외'로 보인다 (T-14) */
+  /** git 에 올리지 않는 파일 (.env · CLAUDE.local.md …). 트리에 흐리게 'git 제외'로 보인다 */
   ignored?: boolean
 }
 
@@ -242,7 +242,7 @@ export interface ProjectSession {
   state: SessionState
   /** 켜진 세션이 지금 하는 일 (claude agents 의 state). 꺼졌으면 null */
   activity: 'working' | 'blocked' | 'done' | null
-  /** 컨텍스트 토큰 수 · 압축 횟수 (T-21, 모니터링 탭의 세션 칸과 같은 값) */
+  /** 컨텍스트 토큰 수 · 압축 횟수 (모니터링 탭의 세션 칸과 같은 값) */
   tokens: number | null
   compactions: number
   /** 최근 질문 20개에 대한 답이 끝난 시각들 (오래된 것부터). 새 답 수를 셀 때 쓴다 */
@@ -304,7 +304,7 @@ export interface GitHistory {
   fetch?: { at: string | null; error: string | null } | null
 }
 
-/** 커밋을 누르면 (T-10). status: A 추가 · M 수정 · D 삭제 · R 이름 바꿈 … */
+/** 커밋을 누르면. status: A 추가 · M 수정 · D 삭제 · R 이름 바꿈 … */
 export interface CommitFile {
   status: string
   path: string
@@ -325,7 +325,7 @@ export interface CommitDetail {
   files: CommitFile[]
 }
 
-/** 커밋 AI 요약 (T-11). 아직 만들지 않았으면 text 가 null */
+/** 커밋 AI 요약. 아직 만들지 않았으면 text 가 null */
 export interface CommitSummary {
   text: string | null
   model: string | null
@@ -347,7 +347,7 @@ export interface FileDiff {
   hunks: DiffHunk[]
 }
 
-/** 작업 문서의 바뀐 파일 비교 (T-19). 무엇을 합친 비교인지: [T-n] 커밋들(짧은 번호, 오래된 것부터) + 커밋 안 된 변경.
+/** 작업 문서의 바뀐 파일 비교. 무엇을 합친 비교인지: [T-n] 커밋들(짧은 번호, 오래된 것부터) + 커밋 안 된 변경.
  * 둘 다 없으면 비교할 것이 없다 — 화면이 [파일] 보기로 연다 */
 export interface TaskFileDiff extends FileDiff {
   /** 훅이 남긴 스냅샷으로 만든 비교 (그 작업이 고치기 직전 → 마지막으로 고친 직후) */
@@ -373,7 +373,7 @@ export interface FileContent {
   text: string
 }
 
-/** [세션] 보기의 대화 한 칸 (T-8). 도구 사용은 숨기고 답마다 이름별 횟수만 온다. */
+/** [세션] 보기의 대화 한 칸. 도구 사용은 숨기고 답마다 이름별 횟수만 온다. */
 export interface ChatMessage {
   role: 'user' | 'assistant'
   text: string

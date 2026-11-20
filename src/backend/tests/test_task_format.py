@@ -3,7 +3,6 @@
 검사기는 플러그인 안에 있고 표준 라이브러리만 쓴다(훅에서 불린다). 대시보드도 같은 정의를
 쓰므로, 여기서 형식이 조용히 바뀌지 않게 지킨다. 템플릿이 형식에 맞는지도 함께 본다 —
 템플릿과 검사기가 어긋나면 새로 만든 할 일이 모두 '형식 오류'가 된다.
-경계 사례 상당수는 2단계 Fable 교차 검토가 재현한 것이다.
 """
 
 from __future__ import annotations
@@ -156,7 +155,7 @@ def test_머리말_앞에_빈_줄이_있으면_원인을_알려_준다(tmp_path)
 
 
 def test_코드_블록_안의_제목은_항목으로_읽지_않는다():
-    """기록 형식 자체를 다루는 작업에서 실제로 나온다 (Fable 재현)."""
+    """기록 형식 자체를 다루는 작업에서 실제로 나온다."""
     body = "- 2026-11-12 예시를 넣음\n\n```md\n## 남은 일\n## 설치\n```\n\n~~~\n## 목표\n~~~"
     data = dt.parse(task(status="done", done_items=body))
     assert list(data["sections"]) == ["목표", "한 일", "남은 일"]
@@ -185,7 +184,7 @@ def test_한_줄_안에서_닫히는_코드는_블록을_열지_않는다(tmp_pa
 
 
 def test_머리말의_들여쓴_줄과_목록은_건너뛰고_다른_키는_무시한다():
-    """머리말은 세 키만 읽는다. 다른 키(tags 등)는 있어도 막지 않는다 (ADR 0007)."""
+    """머리말은 세 키만 읽는다. 다른 키(tags 등)는 있어도 막지 않는다."""
     data = dt.parse(task().replace("created:", "tags:\n  - a\n- b: c\ncreated:"))
     assert set(data["meta"]) == {"status", "session", "tags", "created"}
 
@@ -265,7 +264,7 @@ def test_줄바꿈과_BOM_을_지킨다(ending):
 
 
 def test_본문의_같은_모양_줄은_건드리지_않는다():
-    """정규식으로 바꾸던 때는 머리말을 못 맞추면 본문 줄을 바꿨다 (Fable 재현)."""
+    """정규식으로 바꾸던 때는 머리말을 못 맞추면 본문 줄을 바꿨다."""
     text = HEAD.replace("session: old", "session : old") + "\n```\nsession: old\n```\n"
     out = dt.set_meta(text, "session", "new")
     assert dt.parse(out)["meta"]["session"] == "new"
@@ -274,7 +273,7 @@ def test_본문의_같은_모양_줄은_건드리지_않는다():
 
 @pytest.mark.parametrize("name", [r"fix C:\work", r"a\1b", r"x\g<0>y", "tab\there"])
 def test_역슬래시가_든_이름도_글자_그대로_넣는다(name):
-    """바꿀 값을 정규식 치환 문법으로 읽어 예외가 나거나 글이 깨졌다 (Fable 재현)."""
+    """바꿀 값을 정규식 치환 문법으로 읽어 예외가 나거나 글이 깨졌다."""
     assert dt.parse(dt.set_meta(HEAD, "session", name))["meta"]["session"] == name
 
 
@@ -285,7 +284,7 @@ def test_머리말이_없거나_키가_없으면_그대로다():
 
 @pytest.mark.parametrize("raw", ['"develope"', "'develope'", '" develope "'])
 def test_머리말_값의_따옴표는_뗀다(raw):
-    """YAML 습관으로 감싼 따옴표. 떼지 않으면 세션 이름이 달라 보였다 (4단계 Fable 재현)."""
+    """YAML 습관으로 감싼 따옴표. 떼지 않으면 세션 이름이 달라 보였다."""
     assert (
         dt.parse(HEAD.replace("session: old", f"session: {raw}"))["meta"]["session"] == "develope"
     )

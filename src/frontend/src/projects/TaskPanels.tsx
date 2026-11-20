@@ -5,7 +5,7 @@ import { WARNING } from '../components/styles'
 import type { TaskDetail, TaskFileDiff, TaskRow, TaskStatus } from '../types'
 import { DiffView } from './GitView'
 
-// 탭이 '작업'이라 안에서는 상태만 짧게 (사용자 결정, T-18). 문서 섹션의 '한 일'과 겹치지 않게 '완료'
+// 탭이 '작업'이라 안에서는 상태만 짧게 (사용자 결정). 문서 섹션의 '한 일'과 겹치지 않게 '완료'
 const STATUS_LABEL: Record<TaskStatus, string> = { doing: '진행 중', todo: '대기', done: '완료' }
 const STATUS_ORDER: TaskStatus[] = ['doing', 'todo', 'done']
 const STATUS_COLOR: Record<TaskStatus, string> = {
@@ -99,7 +99,7 @@ const stripComments = (text: string) => text.replace(/<!--[\s\S]*?(-->|$)/g, '')
 
 /**
  * 항목 본문을 그린다. '- ' 로 시작하는 줄은 실제 목록으로, 들여 쓴 다음 줄은 그 항목에 잇는다.
- * 그대로 한 덩어리 글로 두면 '- 2026-11-13 …' 줄들이 붙어 보여 어디서 끊기는지 알기 어려웠다 (T-2).
+ * 그대로 한 덩어리 글로 두면 '- 2026-11-13 …' 줄들이 붙어 보여 어디서 끊기는지 알기 어려웠다.
  * 마크다운 전체를 그리지는 않는다 — 기록 규칙이 쓰는 것은 문장과 '- ' 목록뿐이다.
  */
 function Prose({ text }: { text: string }) {
@@ -145,8 +145,8 @@ const SECTION_TITLE = 'mb-1.5 text-[13px] font-semibold text-gray-300'
 
 /**
  * 고른 작업의 정리 문서. 목표 · 한 일 · 남은 일과 이 작업에서 바뀐 파일.
- * 바뀐 파일을 누르면 그 아래에 이 작업이 그 파일을 어떻게 바꿨는지 좌우 비교가 열린다 (T-19).
- * 비교할 커밋이 없으면(커밋에 [T-n] 이 없음) 전처럼 [파일] 보기로 넘어가 그 파일을 연다 (T-5).
+ * 바뀐 파일을 누르면 그 아래에 이 작업이 그 파일을 어떻게 바꿨는지 좌우 비교가 열린다.
+ * 비교할 커밋이 없으면(커밋에 [T-n] 이 없음) 전처럼 [파일] 보기로 넘어가 그 파일을 연다.
  */
 export function TaskDoc({
   projectKey,

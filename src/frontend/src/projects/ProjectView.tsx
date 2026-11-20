@@ -17,17 +17,17 @@ import { defaultTask, useProjectData, useTaskDoc, type Slot } from './useProject
 
 /**
  * 한 프로젝트 화면. 다섯 칸을 한 화면에 펼치지 않고 [할 일] [파일] [git] [세션] 중 고른 하나만
- * 화면을 다 쓴다 (T-3). 작은 서브 모니터에서 칸마다 폭이 좁아 글자를 키울 수 없고 답답했다.
+ * 화면을 다 쓴다. 작은 서브 모니터에서 칸마다 폭이 좁아 글자를 키울 수 없고 답답했다.
  *
  *   늘 보는 것   [할 일]  왼쪽 할 일 목록 · 오른쪽 넓은 정리 문서 (고르고 읽는 일이 짝이라 두 칸)
  *   찾아보는 것  [파일]   왼쪽 파일 구조 · 오른쪽 고른 파일을 바꾼 할 일들
- *               [git]    왼쪽 최근 커밋(동료 것 포함) · 오른쪽 바뀐 파일과 이전 · 이후 비교 (T-10)
+ *               [git]    왼쪽 최근 커밋(동료 것 포함) · 오른쪽 바뀐 파일과 이전 · 이후 비교
  *               [세션]   이 프로젝트의 세션과 마지막 작업 (자르지 않고)
  *
  * 보기끼리 잇는다: 커밋의 [T-12] · 파일 이력의 할 일을 누르면 [할 일] 보기로 넘어가 그 문서가 열린다.
  */
 export function ProjectView({ project, offline }: { project: ProjectRow; offline: boolean }) {
-  // 뒤로 가기로 이 프로젝트에 돌아왔으면 그때 보던 화면에서 시작한다 (T-28)
+  // 뒤로 가기로 이 프로젝트에 돌아왔으면 그때 보던 화면에서 시작한다
   const [initial] = useState(() => savedNav(project.key))
   const [view, setView] = useState<ProjectViewName>(initial?.view ?? lastView)
   const [chosenFile, setChosenFile] = useState<string | null>(initial?.chosenFile ?? null)
@@ -57,7 +57,7 @@ export function ProjectView({ project, offline }: { project: ProjectRow; offline
   }, [])
 
   /**
-   * 사람이 누른 이동 (T-28): 보기 전환 · 항목 고르기 · 다른 보기로 넘어가기. 브라우저 방문 기록에 한 칸 남겨
+   * 사람이 누른 이동: 보기 전환 · 항목 고르기 · 다른 보기로 넘어가기. 브라우저 방문 기록에 한 칸 남겨
    * 뒤로 가기를 누르면 바로 전 화면(보기 · 고른 것 · 스크롤 위치)으로 돌아온다. 같은 화면이면 남기지 않는다.
    * 주소(해시)는 프로젝트까지만 쓰고, 화면 상태는 방문 기록의 state 에 둔다.
    * 처음 열 때 기본 항목을 스스로 고르는 것은 이동이 아니라서 남기지 않는다.
@@ -102,7 +102,7 @@ export function ProjectView({ project, offline }: { project: ProjectRow; offline
   const { files, sessions, tasks, git, reload } = useProjectData(project.key)
 
   // [세션] 보기: 고르지 않았거나 고른 세션이 빠졌으면 (/clear 로 번호가 바뀐 경우 포함) 첫째를 연다
-  // 목록이 비었으면 고른 것도 비운다 — 다 뺀 세션의 대화가 오른쪽에 남아 있었다 (8단계 Fable 검토)
+  // 목록이 비었으면 고른 것도 비운다 — 다 뺀 세션의 대화가 오른쪽에 남아 있었다
   const sessionList = sessions.data
   if (sessionList && !sessionList.some((s) => s.id === selectedSession)) {
     const first = sessionList[0]?.id ?? null
@@ -128,7 +128,7 @@ export function ProjectView({ project, offline }: { project: ProjectRow; offline
 
   const highlight = useMemo(() => new Set(shownDoc?.files.map((f) => f.path) ?? []), [shownDoc])
   const known = useMemo(() => new Set(list?.map((t) => t.number) ?? []), [list])
-  // 문서 속 [[위키링크]] 를 찾을 곳 (T-4)
+  // 문서 속 [[위키링크]] 를 찾을 곳
   const mdFiles = useMemo(
     () => files.data?.files.map((f) => f.path).filter((p) => /\.md$/i.test(p)) ?? [],
     [files.data],
@@ -144,7 +144,7 @@ export function ProjectView({ project, offline }: { project: ProjectRow; offline
     },
     [list, go],
   )
-  // 정리 문서의 "이 작업에서 바뀐 파일"을 누르면 [파일] 보기로 넘어가 그 파일을 연다 (T-5).
+  // 정리 문서의 "이 작업에서 바뀐 파일"을 누르면 [파일] 보기로 넘어가 그 파일을 연다.
   // 트리는 고른 파일을 품은 폴더를 펼치고 그 자리까지 스크롤한다 (FileTree)
   // 고정해 둔다: 대화의 마크다운(MarkdownView)이 이 함수를 받는데, 매번 새 함수면 매번 다시 그린다
   const openFile = useCallback((path: string) => go({ view: 'files', selectedPath: path }), [go])
@@ -159,7 +159,7 @@ export function ProjectView({ project, offline }: { project: ProjectRow; offline
     reload()
   }, [project.key, reload])
 
-  // [git] 옆 숫자: [git] 보기를 마지막으로 본 뒤 생긴 커밋 수 (T-10). 보고 있는 동안은 세지 않는다
+  // [git] 옆 숫자: [git] 보기를 마지막으로 본 뒤 생긴 커밋 수. 보고 있는 동안은 세지 않는다
   const commits = git.data?.commits
   const seenCommits = view === 'git' ? null : gitSeen(project.key)
   const newCommits = commits && seenCommits ? commits.filter((c) => !seenCommits.has(c.hash)).length : 0
@@ -175,7 +175,7 @@ export function ProjectView({ project, offline }: { project: ProjectRow; offline
   }, [view, commits, project.key])
 
   const doing = list?.filter((t) => t.status === 'doing').length
-  // 순서와 이름은 사용자 결정 (T-15): 세션 · 작업 · 파일 · 깃
+  // 순서와 이름은 사용자 결정: 세션 · 작업 · 파일 · 깃
   const tabs: { name: ProjectViewName; label: string; count?: number; fresh?: boolean }[] = [
     { name: 'sessions', label: '세션', count: sessions.data?.length },
     { name: 'tasks', label: '작업', count: doing },
@@ -340,7 +340,7 @@ export function ProjectView({ project, offline }: { project: ProjectRow; offline
   )
 }
 
-/** 뒤로 가기용 화면 하나 (T-28). 브라우저 방문 기록의 state 에 넣는다 — 주소(해시)는 프로젝트까지만 쓴다. */
+/** 뒤로 가기용 화면 하나. 브라우저 방문 기록의 state 에 넣는다 — 주소(해시)는 프로젝트까지만 쓴다. */
 interface Nav {
   key: string
   view: ProjectViewName
@@ -377,7 +377,7 @@ function sameScreen(a: Nav, b: Nav): boolean {
 
 /**
  * 두 칸 보기: 왼쪽 목록(좁게) · 오른쪽 내용. 좁은 화면에서는 위아래로 쌓는다.
- * 오른쪽 내용은 가운데에 둬서 좌우 여백을 같게 한다 (왼쪽에 붙이니 오른쪽만 비어 보였다, T-7).
+ * 오른쪽 내용은 가운데에 둬서 좌우 여백을 같게 한다 (왼쪽에 붙이니 오른쪽만 비어 보였다).
  * 글(정리 문서 · md)은 읽기 좋은 줄 길이로 좁게, 코드(wide)는 화면을 넓게 쓴다.
  */
 function Split({
@@ -479,7 +479,7 @@ function FileHistory({
 
 /**
  * [파일] 보기 오른쪽 전체: 파일 이름 → 내용 → 이 파일을 바꾼 할 일.
- * 내용은 .md 면 읽기 좋게 그린 문서(T-4), 그 밖의 글 파일은 색과 줄 번호를 붙인 코드(T-6).
+ * 내용은 .md 면 읽기 좋게 그린 문서, 그 밖의 글 파일은 색과 줄 번호를 붙인 코드.
  * 문서 속 링크로 다른 .md 를 열면 onSelect 로 고른 파일이 바뀌어 트리도 따라간다.
  */
 function FilePane({

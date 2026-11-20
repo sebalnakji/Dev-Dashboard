@@ -9,8 +9,8 @@ import { SessionPanel } from './panels/SessionPanel'
 import { lastProject } from './projects/remember'
 
 /**
- * 두 탭 (ADR 0007).
- *   모니터링: 원격 서버 | Claude 세션(메인) | 이 PC 메모리 (ADR 0005)
+ * 두 탭.
+ *   모니터링: 원격 서버 | Claude 세션(메인) | 이 PC 메모리
  *   프로젝트: 프로젝트마다 파일 · 세션 | 정리 문서 · 할 일 | git 이력
  * 서버 카드를 누르면 그 서버의 상세 화면이 전체 화면으로 열린다 (#/서버id).
  */

@@ -1,4 +1,4 @@
-"""프로젝트 탭의 API (ADR 0007 · 0008).
+"""프로젝트 탭의 API.
 
 칸마다 요청 하나다. 파일 · git 을 읽는 동기 코드라 async 가 아닌 def 로 두어 FastAPI 가
 스레드에서 돌리게 한다 (서버 수집 · SSE 를 막지 않게).
@@ -244,7 +244,7 @@ def task_detail(key: str, number: int, file: str | None = None) -> JSONResponse:
 
 @router.get("/{key}/tasks/{number}/diff")
 def task_diff(key: str, number: int, path: str, full: bool = False) -> JSONResponse:
-    """작업 문서의 바뀐 파일을 누르면: 이 작업이 그 파일을 어떻게 바꿨나 (T-19)."""
+    """작업 문서의 바뀐 파일을 누르면: 이 작업이 그 파일을 어떻게 바꿨나."""
     return _check(key, need_folder=True) or JSONResponse(records.task_diff(key, number, path, full))
 
 

@@ -1,4 +1,4 @@
-"""프로젝트 탭 API 테스트 (ADR 0007 · 0008).
+"""프로젝트 탭 API 테스트.
 
 화면이 칸마다 하나씩 부르는 계약이다. 실제 ~/.devdash(세션 배치 포함)는 건드리지 않게
 DEVDASH_HOME 과 세션 배치 경로를 임시 폴더로 바꾼다. git 이력 · 파일 목록은 실제 git 저장소로 본다.
@@ -195,7 +195,7 @@ def test_파일은_추적_중과_새_파일과_git_제외_파일을_보인다(cl
     out = client.get(f"/api/projects/{key}/files").json()
     rows = {f["path"]: f for f in out["files"]}
     assert ".gitignore" in rows and "src/a.py" in rows and "한글 파일.md" in rows
-    # 이 PC 의 작업 폴더를 보므로 git 에 올리지 않는 파일도 보인다 — 흐리게 보이게 표시만 (T-14)
+    # 이 PC 의 작업 폴더를 보므로 git 에 올리지 않는 파일도 보인다 — 흐리게 보이게 표시만
     assert rows["secret.txt"]["ignored"] is True and "ignored" not in rows["src/a.py"]
     new = rows["src/new.py"]
     assert (new["createdTask"], new["lastTask"], new["changes"]) == ("T-2", "T-5", 3)
@@ -445,7 +445,7 @@ def test_AI_요약을_만들지_못하면_409_에_이유(client, env, monkeypatc
 def test_커밋_내용을_못_읽으면_요약을_만들지_않고_깨진_요약은_없는_것으로_본다(
     client, env, monkeypatch
 ):
-    """8단계 Fable 검토: 빈 diff 로 만든 요약이 저장되면 다시 만들 길이 없다."""
+    """빈 diff 로 만든 요약이 저장되면 다시 만들 길이 없다."""
     called = []
     monkeypatch.setattr(records.commit_summary_ai, "summarize", lambda d, p: called.append(1))
     monkeypatch.setattr(records, "commit_detail", lambda key, sha: None)
@@ -624,11 +624,11 @@ def test_원격이_없으면_fetch_정보도_없다(client, env):
     assert client.post(f"/api/projects/{key}/git/fetch").json()["error"] == "원격 저장소가 없습니다"
 
 
-# --- 6단계 Fable 검토가 짚은 것 ---
+# --- 경계 사례 ---
 
 
 def test_작업용_복사본에서_일하는_세션도_원래_저장소로_모은다(client, env):
-    """후보 · 추가 · 미리 체크가 모두 원래 저장소 기준이어야 한다 (ADR 0008)."""
+    """후보 · 추가 · 미리 체크가 모두 원래 저장소 기준이어야 한다."""
     wt = env["repo"] / ".claude" / "worktrees" / "bg"
     git("worktree", "add", "-q", str(wt), "-b", "bg", cwd=env["repo"])
     env["base"].append(row("s-4", "bg-head", wt / "src"))
@@ -793,7 +793,7 @@ def test_같은_번호가_둘이면_화면이_고른_파일의_정리_문서를_
     assert client.get(f"/api/projects/{key}/tasks/1", params={"file": "없음.md"}).status_code == 404
 
 
-# --- 순서 바꾸기 · 이름 바꾸기 · 등록 해제 (8단계, 사용자 요청) ---
+# --- 순서 바꾸기 · 이름 바꾸기 · 등록 해제 (사용자 요청) ---
 
 
 def test_끌어서_정한_순서대로_목록이_나오고_새_프로젝트는_뒤에_붙는다(client, env):
@@ -854,7 +854,7 @@ def test_파일을_바꾼_할_일들을_최근_순으로_준다(client, env):
     assert client.get(f"/api/projects/{key}/file-history", params={"path": "없음"}).json() == []
 
 
-# --- [파일] 보기의 문서 읽기 (T-4) ---
+# --- [파일] 보기의 문서 읽기 ---
 
 
 def test_프로젝트_안의_글_파일은_내용을_준다(client, env):

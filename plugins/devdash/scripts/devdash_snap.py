@@ -233,7 +233,7 @@ READ_ONLY = frozenset(
 )
 """파일을 바꾸지 않는 명령. 여기 없거나 애매하면 읽기 전용으로 보지 않는다 (사용자 결정).
 인자에 따라 파일을 쓰는 것(uniq · tree · find · sort · file)은 _writes 가 인자를 보고 가린다.
-xxd(-r · 출력 파일) · less(-o) · fd(-x 로 명령 실행)는 아예 넣지 않는다 (S3 검토)."""
+xxd(-r · 출력 파일) · less(-o) · fd(-x 로 명령 실행)는 아예 넣지 않는다."""
 
 PS_READ_ONLY = frozenset(
     [

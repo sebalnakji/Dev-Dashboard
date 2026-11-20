@@ -1,7 +1,7 @@
 import type { BundledLanguage, ThemedToken } from 'shiki'
 
 /**
- * 코드를 VS Code 와 같은 색으로 칠한다 (Shiki, T-6).
+ * 코드를 VS Code 와 같은 색으로 칠한다 (Shiki).
  *
  * Shiki 는 VS Code 의 문법 정의(TextMate)를 그대로 써서 TSX 같은 복잡한 문법도 VS Code 와 똑같이 칠한다.
  * 전부 합치면 수 MB 라, 처음 코드를 열 때 불러오고 언어도 연 파일의 것만 내려받는다 —
@@ -31,7 +31,7 @@ export async function highlight(code: string, lang: string): Promise<string> {
 }
 
 /**
- * 줄마다 색 조각으로 (좌우 비교, T-10). 비교는 이전 · 이후 줄을 표의 칸에 하나씩 넣어야 해서
+ * 줄마다 색 조각으로 (좌우 비교). 비교는 이전 · 이후 줄을 표의 칸에 하나씩 넣어야 해서
  * 통째로 만든 HTML 대신 줄 단위 조각을 받는다.
  */
 export async function tokenize(code: string, lang: string): Promise<ThemedToken[][]> {

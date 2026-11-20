@@ -7,7 +7,7 @@ import { StatusBadge } from './StatusBadge'
 /**
  * 그리드에 늘어놓는 서버 카드.
  *
- * 담는 것은 ADR 0004 에서 정한 만큼이다. 로드·네트워크·가동 시간은
+ * 이상 여부를 판단하는 데 필요한 것만 담는다. 로드·네트워크·가동 시간은
  * 이상 여부 판단에 직접 쓰이지 않아 상세 뷰로 보냈다.
  */
 export function ServerCard({ server, now }: { server: ServerSummary; now: number }) {

@@ -1,7 +1,7 @@
 """할 일 파일(T-12-제목.md)을 읽고 형식을 검사한다.
 
 형식의 정의는 이 파일 한 곳에만 둔다. 강제 훅(작업이 끝날 때 검사)과 대시보드(프로젝트 탭)가
-같은 정의를 쓰게 하려는 것이다 (ADR 0006·0007). 훅에서 불리므로 표준 라이브러리만 쓴다.
+같은 정의를 쓰게 하려는 것이다. 훅에서 불리므로 표준 라이브러리만 쓴다.
 
 할 일 파일은 저장소 밖 ~/.devdash/projects/<프로젝트>/tasks/ 에 있다. 형식:
 
@@ -41,7 +41,7 @@ REQUIRED_WHEN_DONE = ("한 일",)
 바뀐 파일은 훅의 자동 변경 기록이 알므로 Claude 에게 쓰게 하지 않는다."""
 
 FILE_NAME = re.compile(r"^T-([1-9]\d*)-.+\.md$")
-"""T-12-제목.md. 번호 앞의 0(T-03)은 받지 않는다 — 같은 번호가 두 이름으로 생긴다."""
+"""T-12-제목.md. 번호 앞의 0은 받지 않는다 — 같은 번호가 두 이름으로 생긴다."""
 
 TASK_REF = re.compile(r"\[T-([1-9]\d*)\]")
 """커밋 메시지 첫 줄 끝의 할 일 번호. 예: '프로젝트 탭 파일 구조 [T-12] [T-13]'."""
@@ -136,7 +136,7 @@ def parse(text: str) -> dict:
 
 def _unquote(value: str) -> str:
     """'session: "develope"' 처럼 YAML 습관으로 감싼 따옴표를 뗀다. 떼지 않으면 세션 이름이
-    달라 보여 진행 중 할 일을 못 찾고 강제도 빠졌다 (4단계 Fable 재현)."""
+    달라 보여 진행 중 할 일을 못 찾고 강제도 빠졌다."""
     if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
         return value[1:-1].strip()
     return value
@@ -222,7 +222,7 @@ def set_meta(text: str, key: str, value: str) -> str:
     """머리말의 key 값을 바꾼 글. 머리말에 그 키가 없으면 그대로 돌려준다.
 
     parse 와 같은 규칙으로 줄을 읽어(키 앞뒤 공백 무시, 들여쓴 줄 건너뜀) 머리말 안에서만 바꾼다 —
-    본문의 같은 모양 줄은 건드리지 않는다. 줄바꿈(LF·CRLF)과 BOM 도 그대로 둔다 (3단계 Fable 검토).
+    본문의 같은 모양 줄은 건드리지 않는다. 줄바꿈(LF·CRLF)과 BOM 도 그대로 둔다.
     """
     lines = text.splitlines(keepends=True)
     if not lines or lines[0].removeprefix("﻿").strip() != "---":

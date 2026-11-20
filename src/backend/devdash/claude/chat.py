@@ -1,4 +1,4 @@
-"""세션의 대화 (프로젝트 탭 [세션] 보기, T-8).
+"""세션의 대화 (프로젝트 탭 [세션] 보기).
 
 Claude Code 는 대화를 ~/.claude/projects/<폴더>/<세션 번호>.jsonl 에 한 줄씩 쌓는다.
 한 줄에는 사람이 친 질문 · Claude 의 답 · 생각 · 도구 사용(파일 읽기 · 명령 실행 …)과
@@ -180,7 +180,7 @@ REPLY_WINDOW = 20
 
 
 def summary(path: Path) -> dict:
-    """세션 목록 한 줄에 필요한 것 (T-9): 최근 답이 끝난 시각들과 마지막 대화 시각.
+    """세션 목록 한 줄에 필요한 것: 최근 답이 끝난 시각들과 마지막 대화 시각.
 
     {"replies": [시각, …] (오래된 것부터), "lastAt": 마지막 질문이나 답의 시각}
     """
@@ -191,7 +191,7 @@ def summary(path: Path) -> dict:
     }
 
 
-# --- 컨텍스트 사용량과 압축 횟수 (T-21) ---
+# --- 컨텍스트 사용량과 압축 횟수 ---
 
 COMPACT_MARK = b"compact_boundary"
 """Claude Code 가 대화를 압축할 때마다 남기는 기록 줄(system · compact_boundary)의 낱말.

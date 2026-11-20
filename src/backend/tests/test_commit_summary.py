@@ -1,4 +1,4 @@
-"""커밋 AI 요약 (T-11). 실제 claude 는 부르지 않고 실행 부분을 바꿔 끼운다."""
+"""커밋 AI 요약. 실제 claude 는 부르지 않고 실행 부분을 바꿔 끼운다."""
 
 from __future__ import annotations
 

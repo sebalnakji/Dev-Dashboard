@@ -65,7 +65,7 @@ function loadMermaid() {
 
 let mermaidSeq = 0
 
-/** md 안의 ```mermaid 블록을 그림으로 (T-6). 문법이 틀리면 이유와 원문을 보여 준다. */
+/** md 안의 ```mermaid 블록을 그림으로. 문법이 틀리면 이유와 원문을 보여 준다. */
 export function MermaidView({ code }: { code: string }) {
   const [result, setResult] = useState<{ code: string; svg?: string; error?: string } | null>(null)
 

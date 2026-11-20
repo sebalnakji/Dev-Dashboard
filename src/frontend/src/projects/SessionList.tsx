@@ -32,7 +32,7 @@ function statusOf(s: ProjectSession): { dot: string; label: string; text: string
 
 /**
  * 마지막으로 본 뒤 끝난 답의 수. 처음 보는 세션 · 지금 보고 있는 세션은 0.
- * 답을 만드는 중이면 마지막 답은 아직 끝나지 않았으므로 세지 않는다 (8단계 Fable 검토 — '+1'이 미리 떴다).
+ * 답을 만드는 중이면 마지막 답은 아직 끝나지 않았으므로 세지 않는다 ('+1'이 미리 떴다).
  */
 function freshCount(s: ProjectSession, selected: boolean): number {
   const seen = seenAt(s.id)
@@ -43,9 +43,9 @@ function freshCount(s: ProjectSession, selected: boolean): number {
 }
 
 /**
- * [세션] 보기 왼쪽: 이 프로젝트의 세션 목록. 누르면 오른쪽에 그 세션의 대화가 열린다 (T-8).
+ * [세션] 보기 왼쪽: 이 프로젝트의 세션 목록. 누르면 오른쪽에 그 세션의 대화가 열린다.
  * 한 줄에 이름 · 지금 하는 일(답변 중 / 확인 필요 / 쉬는 중 / 꺼짐) · 마지막으로 본 뒤 새 답 수 ·
- * 시각 (T-9). 대화 미리보기는 두지 않는다 (사용자 결정). 본 시각은 이 브라우저가 세션마다 기억한다.
+ * 시각. 대화 미리보기는 두지 않는다 (사용자 결정). 본 시각은 이 브라우저가 세션마다 기억한다.
  * 어떤 세션이 이 프로젝트 것인지는 작업 폴더로 자동으로 정해지고, 바꾸고 싶을 때만 [세션 고르기]로 바꾼다.
  */
 export function SessionList({
@@ -64,7 +64,7 @@ export function SessionList({
   const now = useNow()
   const [notice, setNotice] = useState<string | null>(null)
 
-  // 연결 · 해제 (T-17): 모니터링 탭의 세션 칸과 같은 API · 같은 확인 창을 쓴다
+  // 연결 · 해제: 모니터링 탭의 세션 칸과 같은 API · 같은 확인 창을 쓴다
   async function toggle(s: ProjectSession) {
     const action = s.state === 'off' ? 'start' : 'stop'
     let result = await postSessionAction(s.id, action).catch((e) => ({ error: reasonOf(e) }) as ActionResult)

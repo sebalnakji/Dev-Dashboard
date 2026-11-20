@@ -12,7 +12,7 @@ interface Folder {
   ignored: boolean
 }
 
-/** git 에 올리지 않는 파일 · 폴더 표시 (T-14). 이 PC 의 작업 폴더에는 있지만 저장소에는 없다 */
+/** git 에 올리지 않는 파일 · 폴더 표시. 이 PC 의 작업 폴더에는 있지만 저장소에는 없다 */
 const IgnoredMark = () => (
   <span
     title="깃에 올리지 않는 파일입니다 (.gitignore). 이 PC 에만 있습니다"
@@ -105,7 +105,7 @@ export const FileTree = memo(function FileTree({
     return out
   }, [highlight])
   // 처음 그릴 때부터 고른 파일을 품은 폴더는 펼쳐 둔다 — 다른 보기에서 넘어오면 트리가 새로
-  // 만들어져 아래의 '고른 파일이 바뀌면' 이 돌지 않아, 파일이 접힌 폴더 안에 숨었다 (T-5)
+  // 만들어져 아래의 '고른 파일이 바뀌면' 이 돌지 않아, 파일이 접힌 폴더 안에 숨었다
   const [open, setOpen] = useState(() => withAncestors(openFolders(projectKey), selected))
   // 고른 파일이 바뀌면 (다른 보기 · 문서 링크에서 넘어왔을 수 있다) 트리에서 그 줄이 보이게 스크롤한다
   const box = useRef<HTMLDivElement>(null)

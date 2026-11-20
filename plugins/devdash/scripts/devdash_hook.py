@@ -1,4 +1,4 @@
-"""devdash 훅 — 기록 1겹(자동)과 2겹(알림 · 강제). Claude Code 가 이벤트마다 부른다 (ADR 0007).
+"""devdash 훅 — 기록 1겹(자동)과 2겹(알림 · 강제). Claude Code 가 이벤트마다 부른다.
 
     UserPromptSubmit   세션 이름을 정하고, 필요할 때 "작업 기록 폴더 · 세션 이름" 알림
     SessionStart       요약(compact) · 이어 열기(resume) 뒤 알림 다시. /clear 면 이름 넘겨받기
@@ -39,7 +39,7 @@ SHELL_TOOLS = ("Bash", "PowerShell")
 RECORDS_HINT = "[devdash] 작업 기록 폴더: {tasks} · 세션 이름: {name}"
 """Claude 에게 알리는 줄. '작업 기록 폴더' · '세션 이름' 낱말은 SKILL.md 와 같아야 한다
 (테스트로 묶음). 매 차례가 아니라 필요할 때만 낸다 — 매 차례면 100차례에 수천 토큰이
-쌓인다 (3단계 Fable 검토)."""
+쌓인다."""
 
 BLOCK_REASON = (
     "[devdash] 이번 차례에 완료(done)로 바꾼 할 일의 '## 한 일'이 비어 있습니다.\n{items}\n"
@@ -146,7 +146,7 @@ def hint(store, key: str, sid: str, name: str) -> None:
 
 def task_files(store, tasks_mod, key: str) -> list[tuple[int, Path]]:
     """이름이 형식(T-번호-제목.md)에 맞는 할 일 파일들, 번호 순 (T-2 가 T-10 앞).
-    알림과 강제가 같은 파일을 보게 한 곳에서 거른다 (4단계 Fable 검토)."""
+    알림과 강제가 같은 파일을 보게 한 곳에서 거른다."""
     out = []
     for path in (store.project_dir(key) / "tasks").glob("T-*.md"):
         m = tasks_mod.FILE_NAME.match(path.name)
@@ -169,7 +169,7 @@ def first_change_in_turn(store, key: str, sid: str, prompt_id: str) -> bool:
     """이 차례(prompt_id)의 첫 파일 변경이면 표시해 두고 True.
 
     한 응답의 Edit 여럿은 PostToolUse 가 동시에 돌아서(공식 문서) 확인과 표시를 잠근 채 한다 —
-    잠그지 않으면 같은 알림이 두 번 갔다 (4단계 Fable 재현: 10번 중 4번).
+    잠그지 않으면 같은 알림이 두 번 갔다 (재현: 10번 중 4번).
     """
     with store.locked(store.project_dir(key) / "remind"):
         if store.session_info(key, sid).get("reminded") == prompt_id:
@@ -590,7 +590,7 @@ def on_stop(store, tasks_mod, key: str, data: dict) -> None:
         # 시각은 화면 세션 칸의 "언제" — 파일 수정 시각은 차례 시작 때도 바뀌어 쓸 수 없다
         store.update_session(key, sid, last_message=message[:LAST_MESSAGE_LIMIT], last_at=now())
     # 2겹 강제. 한 번 막은 뒤(stop_hook_active)에는 다시 막지 않는다 — 채우지 못하는 상황에서
-    # 세션이 끝없이 붙잡히지 않게. 막는 것은 확실한 것 하나뿐이다 (ADR 0007)
+    # 세션이 끝없이 붙잡히지 않게. 막는 것은 확실한 것 하나뿐이다
     if data.get("stop_hook_active"):
         return
     info = store.session_info(key, sid)
@@ -624,7 +624,7 @@ def done_without_work(
     비어 보이는 경우에 Claude 가 무엇을 고칠지 알게.
 
     이번 차례로 좁히는 까닭: 사람이 손으로 완료한 옛 할 일 하나가 매 차례 끝내기를 막았고,
-    Claude 는 모르는 일을 지어 적어야 했다 (4단계 Fable 재현). ADR 0007 도 '완료로 바꿨는데' 다.
+    Claude 는 모르는 일을 지어 적어야 했다. 막을 것은 '이번에 완료로 바꿨는데 비어 있음' 뿐이다.
     """
     out = []
     for _, path in task_files(store, tasks_mod, key):

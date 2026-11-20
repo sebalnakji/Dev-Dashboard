@@ -1,6 +1,6 @@
 """이 PC 의 메모리 · 프로세스 — OS 공통 (psutil).
 
-윈도우 전용 명령(tasklist · taskkill · GlobalMemoryStatusEx)을 쓰던 것을 psutil 하나로 바꿨다 (S4).
+윈도우 전용 명령(tasklist · taskkill · GlobalMemoryStatusEx)을 쓰던 것을 psutil 하나로 바꿨다.
 """
 
 from __future__ import annotations
@@ -61,7 +61,7 @@ def run_bounded(
 
     subprocess.run(timeout=…) 은 윈도에서 시간이 넘으면 직계 프로세스만 죽이고, 그 뒤 출력
     파이프가 닫힐 때까지 시간 제한 없이 기다린다. claude 는 cmd → node, git fetch 는 git → ssh
-    처럼 한 단계 더 띄우므로 손자가 파이프를 쥔 채 남으면 영영 풀리지 않는다 (8단계 Fable 검토).
+    처럼 한 단계 더 띄우므로 손자가 파이프를 쥔 채 남으면 영영 풀리지 않는다.
     그래서 입출력을 파이프 대신 임시 파일로 주고받고, 시간이 넘으면 **그 PID 의 트리만** 끝낸다
     (이름으로 고르지 않는다 — 사용자의 다른 프로그램을 건드리지 않게).
     """

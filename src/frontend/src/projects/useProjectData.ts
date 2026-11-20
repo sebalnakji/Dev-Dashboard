@@ -24,7 +24,7 @@ export function defaultTask(tasks: TaskRow[]): string | null {
 
 /**
  * 받은 내용을 칸에 넣는다. 내용이 지난번과 같으면 상태를 바꾸지 않는다 — 매번 새 배열이면
- * 파일 트리 같은 큰 칸이 5초마다 다시 계산된다 (7단계 Fable 검토).
+ * 파일 트리 같은 큰 칸이 5초마다 다시 계산된다.
  * 실패하면 마지막 내용은 그대로 두고 이유만 띄운다 (한 번 끊겼다고 칸이 비지 않게).
  */
 function useSlot<T>() {
@@ -71,7 +71,7 @@ function usePolling(load: () => void) {
  * 한 프로젝트의 네 칸(파일 · 세션 · 할 일 · git)을 몇 초마다 읽는다.
  * 프로젝트가 바뀌면 부르는 쪽이 key 로 다시 마운트하므로 이전 내용이 섞이지 않는다.
  * 칸마다 받아 오는 대로 그린다 — 다 기다리면 가장 느린 칸(세션: claude 에 켜짐/꺼짐을 묻는다,
- * 첫 호출은 몇 초)이 나머지를 붙잡았다 (7단계 화면 시험).
+ * 첫 호출은 몇 초)이 나머지를 붙잡았다.
  */
 export function useProjectData(key: string) {
   const [files, putFiles] = useSlot<FilesResponse>()

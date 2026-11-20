@@ -2,7 +2,6 @@
 
 실제 ~/.devdash 를 건드리지 않도록 DEVDASH_HOME 을 임시 폴더로 바꾼다. 작업용 복사본(worktree)에서
 고친 파일이 원래 저장소 기준 경로로 기록되는지 보려고 실제 git 저장소와 worktree 를 만든다.
-경계 사례 상당수는 3단계 Fable 교차 검토가 재현한 것이다.
 """
 
 from __future__ import annotations
@@ -114,7 +113,7 @@ def test_키는_경로를_폴더_이름으로_바꾸고_지문을_붙인다():
 
 
 def test_글자만_바꾸면_같아지는_경로도_키가_다르다():
-    """'C:/a b' 와 'C:/a-b' 는 지문이 없으면 같은 폴더가 된다 (Fable 재현)."""
+    """'C:/a b' 와 'C:/a-b' 는 지문이 없으면 같은 폴더가 된다."""
     assert len({store.project_key(p) for p in ("C:/a b", "C:/a-b", "C:/a/b")}) == 3
 
 
@@ -147,7 +146,7 @@ def test_하위_폴더와_저장소_밖_worktree_도_원래_프로젝트로_찾�
 
 
 def test_대소문자가_다른_경로도_찾고_기록한다(env):
-    """'cd c:\\projects\\…' 로 시작한 세션 (Fable 재현: 찾기는 되고 기록은 빠졌다)."""
+    """'cd c:\\projects\\…' 로 시작한 세션 (찾기는 되고 기록은 빠졌다)."""
     store.register(env["repo"])
     lower = str(env["repo"]).lower()
     assert store.find_project(lower)
@@ -183,7 +182,7 @@ def test_지워진_claude_worktree_도_경로로_알아본다(env):
 
 
 def test_등록_폴더가_큰_저장소의_하위_폴더여도_기록한다(env):
-    """모노레포의 한 폴더만 등록한 경우 (Fable 재현: 기록이 빠졌다)."""
+    """모노레포의 한 폴더만 등록한 경우 (기록이 빠졌다)."""
     (env["repo"] / "mono" / "pkg").mkdir(parents=True)
     sub_root = store.norm(env["repo"] / "mono")
     path = env["repo"] / "mono" / "pkg" / "x.py"
@@ -238,7 +237,7 @@ def test_읽을_때_깨진_줄은_건너뛴다(env):
 
 
 def test_첫_차례에만_알리고_다음_차례엔_알리지_않는다(env, capsys):
-    """매 차례 알리면 100차례에 수천 토큰이 쌓인다 (Fable 지적)."""
+    """매 차례 알리면 100차례에 수천 토큰이 쌓인다."""
     key = store.register(env["repo"])
     first = prompt(env, capsys)
     assert "작업 기록 폴더:" in first and "세션 이름: develope" in first
@@ -440,7 +439,7 @@ def test_훅이_알리는_낱말이_규칙_문서와_같다():
         assert word in hook.RECORDS_HINT and word in skill
 
 
-# --- 3단계 Fable 검토가 짚은 빈자리 ---
+# --- 경계 사례: 경로 · 이름 · 잠금 ---
 
 
 def test_이름을_바꾸면_완료한_할_일도_옮기고_줄바꿈은_그대로다(env, capsys):
@@ -448,7 +447,7 @@ def test_이름을_바꾸면_완료한_할_일도_옮기고_줄바꿈은_그대�
     prompt(env, capsys, title=None)  # Dev_001
     done = write_task(env, 1, "done", "Dev_001")
     before = done.read_bytes()
-    # 역슬래시: 바꿀 값을 정규식 치환 문법으로 읽어 예외가 났다 (Fable 재현)
+    # 역슬래시: 바꿀 값을 정규식 치환 문법으로 읽어 예외가 났다
     prompt(env, capsys, title=r"fix C:\work")
     assert done.read_bytes() == before.replace(b"Dev_001", rb"fix C:\work")  # LF 가 CRLF 로 안 바뀜
     assert store.session_info(key_of(env), "s1")["name"] == r"fix C:\work"
@@ -502,7 +501,7 @@ def link_dir(target: Path, link: Path) -> None:
 
 
 def test_정션으로_들어온_worktree_파일도_경로를_잃지_않는다(env, tmp_path):
-    """git 이 준 경로 길이로 다른 표기의 경로를 자르면 빈 경로가 됐다 (Fable 재현)."""
+    """git 이 준 경로 길이로 다른 표기의 경로를 자르면 빈 경로가 됐다."""
     store.register(env["repo"])
     link = tmp_path / "j"
     link_dir(env["wt"], link)
@@ -554,7 +553,7 @@ def test_오류_기록은_커지면_한_번_밀어_둔다(env):
 
 
 def test_다른_세션이_쓰는_이름이면_갈라서_붙이고_할_일을_가져가지_않는다(env, capsys):
-    """복사본 세션이 원본과 같은 이름을 받으면, 이름을 바꿀 때 원본의 할 일을 가져갔다 (Fable 재현)."""
+    """복사본 세션이 원본과 같은 이름을 받으면, 이름을 바꿀 때 원본의 할 일을 가져갔다."""
     store.register(env["repo"])
     prompt(env, capsys, sid="A")
     t1 = write_task(env, 1, "doing", "develope")
@@ -702,11 +701,11 @@ def test_서브에이전트나_이름_없는_세션에는_알리지_않는다(en
     assert edit_out(env, capsys) is not None  # 서브에이전트가 먼저 고쳐도 부모에게는 알린다
 
 
-# --- 4단계 Fable 검토가 짚은 것 ---
+# --- 경계 사례: 완료 강제 · 알림 ---
 
 
 def test_이번_차례_전에_완료된_옛_할_일로는_막지_않는다(env, capsys):
-    """사람이 손으로 완료한 옛 할 일 하나가 매 차례 끝내기를 막았다 (Fable 재현)."""
+    """사람이 손으로 완료한 옛 할 일 하나가 매 차례 끝내기를 막았다."""
     store.register(env["repo"])
     old = write_task(env, 1, "done", "develope")
     past = time.time() - 3600
@@ -723,7 +722,7 @@ def test_차례_시작_시각이_없으면_막지_않는다(env, capsys):
 
 
 def test_따옴표로_감싼_세션_이름도_같은_이름이다(env, capsys):
-    """따옴표를 안 떼면 진행 중 할 일이 없다고 잘못 알리고 강제도 빠졌다 (Fable 재현)."""
+    """따옴표를 안 떼면 진행 중 할 일이 없다고 잘못 알리고 강제도 빠졌다."""
     store.register(env["repo"])
     prompt(env, capsys)
     t = write_task(env, 1, "doing", '"develope"')
@@ -751,7 +750,7 @@ def test_세션_번호나_차례_번호가_없으면_조용히_넘어간다(env,
 
 
 def test_한_응답의_변경_여럿이_동시에_와도_알림은_한_번이다(env):
-    """PostToolUse 는 병렬로 돈다. 잠금 없이는 10번 중 4번 두 번 알렸다 (Fable 재현)."""
+    """PostToolUse 는 병렬로 돈다. 잠금 없이는 10번 중 4번 두 번 알렸다."""
     store.register(env["repo"])
     store.update_session(key_of(env), "s1", name="develope")
     data = json.dumps(
@@ -781,7 +780,7 @@ def test_한_응답의_변경_여럿이_동시에_와도_알림은_한_번이다
 
 
 def test_작업용_복사본이나_하위_폴더에서_등록해도_원래_저장소를_등록한다(env):
-    """하위 폴더를 등록하면 복사본에서 일하는 세션이 프로젝트를 못 찾았다 (5단계 Fable 재현)."""
+    """하위 폴더를 등록하면 복사본에서 일하는 세션이 프로젝트를 못 찾았다."""
     inner = env["repo"] / ".claude" / "worktrees" / "bg1"
     git("worktree", "add", "-q", str(inner), "-b", "bg1", cwd=env["repo"])
     for where in (inner, inner / "src", env["wt"], env["repo"] / "src", env["repo"]):
@@ -839,7 +838,7 @@ def test_플러그인_훅_등록은_훅_스크립트가_처리하는_이벤트�
     assert set(post) == {*hook.FILE_TOOLS, *hook.SHELL_TOOLS}
 
 
-# --- 화면 세션 칸의 "마지막 작업 · 언제" (6단계) ---
+# --- 화면 세션 칸의 "마지막 작업 · 언제" ---
 
 
 def test_끝낼_때_마지막_작업의_시각을_남기고_clear_하면_함께_넘긴다(env, capsys):
@@ -1081,7 +1080,7 @@ def test_읽기만_하는_셸_명령은_git_도_부르지_않는다(env, capsys,
         ("sed -n 1,5p a.py", False),
         ("find . -name '*.pyc' -delete", False),
         ("sort -o out.txt in.txt", False),
-        # S3 검토: 읽기 전용 목록이지만 인자에 따라 파일을 쓰는 경우
+        # 읽기 전용 목록이지만 인자에 따라 파일을 쓰는 경우
         ("sort -uo out.txt in.txt", False),
         ("sort -u in.txt", True),
         ("uniq in.txt out.txt", False),
@@ -1217,7 +1216,7 @@ def test_PowerShell_읽기만_하는_명령_가리기(command, expected):
 
 
 def test_PowerShell_로_고친_파일도_명령_전후_git_상태로_잡는다(env, capsys, doing):
-    """S3 검토: 매처에 PowerShell 이 없어 이 PC 셸 호출의 약 11% 가 빠졌다."""
+    """매처에 PowerShell 이 없으면 셸 호출의 상당수(한 PC 에서 약 11%)가 빠진다."""
     repo = env["repo"]
     a = repo / "src" / "a.py"
 

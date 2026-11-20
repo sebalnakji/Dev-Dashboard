@@ -1,4 +1,4 @@
-"""이 PC 안의 화면만 API 를 쓰게 막기 (T-13)."""
+"""이 PC 안의 화면만 API 를 쓰게 막기."""
 
 from __future__ import annotations
 

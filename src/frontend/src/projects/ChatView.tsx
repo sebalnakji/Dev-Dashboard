@@ -13,7 +13,7 @@ const PAGE = 10
 const REFRESH_MS = 5000
 
 /**
- * [세션] 보기 오른쪽: 고른 세션의 대화 (T-8). 질문과 그 답을 한 차례로 묶어 위에서 아래로 읽는다 (T-9).
+ * [세션] 보기 오른쪽: 고른 세션의 대화. 질문과 그 답을 한 차례로 묶어 위에서 아래로 읽는다.
  * 도구 사용(파일 읽기 · 명령 실행 …)은 숨기고 답 머리줄에 횟수만 — 자세한 것은 Claude Code 앱에서 본다.
  */
 export function ChatView({
@@ -26,14 +26,14 @@ export function ChatView({
   initialTop = null,
 }: {
   sessionId: string
-  /** 작업 상자에 할 일 번호 · 프로젝트 기준 경로를 붙이려고 함께 묻는다 (T-27) */
+  /** 작업 상자에 할 일 번호 · 프로젝트 기준 경로를 붙이려고 함께 묻는다 */
   projectKey: string
   /** 세션이 지금 답을 만드는 중이면 맨 아래에 그렇게 보인다 */
   working: boolean
   mdFiles: string[]
   onOpenFile: (path: string) => void
   onOpenTask: (number: number) => void
-  /** 뒤로 가기로 돌아왔을 때 보던 스크롤 위치 (T-28). 없으면 맨 아래(최근 대화)부터 */
+  /** 뒤로 가기로 돌아왔을 때 보던 스크롤 위치. 없으면 맨 아래(최근 대화)부터 */
   initialTop?: number | null
 }) {
   const now = useNow()
@@ -48,7 +48,7 @@ export function ChatView({
   )
   const lastText = useRef('')
   // 요청 번호. [더 보기] 직후 앞서 보낸(적은 limit) 요청이 늦게 오면 목록이 잠깐 줄고 읽던 자리가 튀었다.
-  // 가장 나중에 보낸 요청의 응답만 쓴다 (8단계 Fable 검토)
+  // 가장 나중에 보낸 요청의 응답만 쓴다
   const seq = useRef(0)
 
   const load = useCallback(() => {
@@ -130,7 +130,7 @@ export function ChatView({
               </div>
             </div>
           )}
-          {/* 질문 → 답 → 작업: 답을 읽고 나서 무엇을 고쳤는지 본다 (작업 상자는 보라, 사용자 결정 T-27 · T-28) */}
+          {/* 질문 → 답 → 작업: 답을 읽고 나서 무엇을 고쳤는지 본다 (작업 상자는 보라, 사용자 결정) */}
           {t.answer?.work && (
             <div className="mt-6">
               <WorkBox projectKey={projectKey} shellTracked={data.shellTracked !== false} work={t.answer.work} onOpenFile={onOpenFile} onOpenTask={onOpenTask} />

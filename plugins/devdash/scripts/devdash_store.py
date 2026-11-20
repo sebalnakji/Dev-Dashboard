@@ -1,4 +1,4 @@
-"""저장소 밖 기록 위치(~/.devdash)와 프로젝트 등록 (ADR 0007).
+"""저장소 밖 기록 위치(~/.devdash)와 프로젝트 등록.
 
     ~/.devdash/projects/<키>/
         project.json     등록 정보 {"root": 저장소 경로, "name": 표시 이름}
@@ -91,7 +91,7 @@ def _git(path: str, *args: str) -> str | None:
     """git 명령의 출력 한 줄. git 이 아니거나 실패하면 None.
 
     출력은 UTF-8 로 읽는다 — 기본(cp949)으로 읽으면 한글 경로에서 깨져 작업용 복사본을 못 찾는다
-    (3단계 테스트에서 실제로 걸림).
+    (테스트에서 실제로 걸림).
     """
     try:
         r = subprocess.run(
@@ -157,7 +157,7 @@ def relative_in_project(file_path: str, root: str) -> tuple[str, str | None] | N
     """
     f = norm(file_path)
     # 실제 표기로 맞춘 뒤 비교하고 자른다 — 정션 · 짧은 이름(A-RATH~1)으로 들어온 경로를
-    # git 이 준 경로의 길이로 자르면 빈 경로가 된다 (3단계 Fable 검토)
+    # git 이 준 경로의 길이로 자르면 빈 경로가 된다
     real_f = norm(os.path.realpath(f))
     parent = real_f.rsplit("/", 1)[0]
     top = worktree_root(parent) if Path(parent).is_dir() else None
@@ -182,7 +182,7 @@ def locked(path: Path, wait: float | None = None, busy: str | None = None) -> It
     """다른 프로세스와 겹치지 않게 path 옆 잠금 파일을 쥔다.
 
     윈도우의 '끝에 덧붙이기'는 한 번에 일어나지 않아, 여러 세션이 동시에 쓰면 줄이 사라지고 깨진다
-    (3단계 Fable 검토 · 직접 재현: 6개 프로세스 1,800줄 → 1,377줄). 그래서 쓰기 전에 잠근다.
+    (직접 재현: 6개 프로세스 1,800줄 → 1,377줄). 그래서 쓰기 전에 잠근다.
     wait(기본 LOCK_WAIT) 안에 못 쥐면 TimeoutError(busy 또는 기본 문구) — 부르는 쪽(훅)이 삼킨다.
     대시보드의 세션 목록(registry)도 이 함수로 잠근다.
     """
@@ -284,7 +284,7 @@ def claim_name(key: str, session_id: str, wanted: str) -> str:
     """세션에 이름을 붙이고 그 이름을 돌려준다. 다른 세션이 이미 쓰면 'wanted_2' 처럼 가른다.
 
     할 일의 주인을 이름으로 가리므로 이름이 겹치면 한 세션이 다른 세션의 할 일을 가져가거나
-    기록이 섞인다 (3단계 Fable 검토 · 복사본 세션이 같은 이름을 받는 것을 실제로 확인).
+    기록이 섞인다 (복사본 세션이 같은 이름을 받는 것을 실제로 확인).
     살펴보기와 쓰기 사이에 다른 세션이 끼지 않게 잠근다.
     """
     d = project_dir(key) / "sessions"
@@ -320,7 +320,7 @@ def main_path(path: str) -> str:
 
     작업용 복사본(.claude/worktrees/x) 이나 하위 폴더에서 불러도 원래 저장소를 등록한다.
     복사본은 지워지고, 하위 폴더를 등록하면 복사본에서 일하는 세션이 프로젝트를 못 찾아
-    기록이 조용히 꺼졌다 (5단계 Fable 재현). 모노레포의 한 폴더만 등록하는 일은 지금 하지 않는다.
+    기록이 조용히 꺼졌다. 모노레포의 한 폴더만 등록하는 일은 지금 하지 않는다.
     """
     return _git_main_root(path) or norm(os.path.realpath(path))
 

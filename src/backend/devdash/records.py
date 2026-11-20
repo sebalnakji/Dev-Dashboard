@@ -1,9 +1,9 @@
-"""프로젝트 탭이 읽는 작업 기록 (ADR 0007 · 0008).
+"""프로젝트 탭이 읽는 작업 기록.
 
 기록의 위치(~/.devdash)와 할 일 파일 형식의 정의는 플러그인 한 곳(plugins/devdash/scripts)에 있다.
 훅과 대시보드가 같은 정의를 쓰도록 복사하지 않고 그대로 불러 쓴다.
 
-화면의 칸마다 함수 하나를 둔다 (ADR 0004: 화면이 그리는 것에 API 를 맞춘다).
+화면의 칸마다 함수 하나를 둔다 (화면이 그리는 것에 API 를 맞춘다).
 화면은 몇 초마다 다시 묻으므로(폴링), 매번 무거운 일을 하지 않게 신경 쓴다.
 """
 
@@ -55,7 +55,7 @@ WALK_SKIP = {
     ".mypy_cache",
 }
 """폴더를 훑을 때 들어가지 않는 의존성 · 빌드 · 캐시 폴더. 파일이 수만 개라 트리가 묻힌다.
-git 이 아닌 폴더와, git 저장소의 git 제외 폴더를 훑을 때 쓴다 (T-14).
+git 이 아닌 폴더와, git 저장소의 git 제외 폴더를 훑을 때 쓴다.
 이름 끝이 .egg-info 인 것도 뺀다 (_skip_dir)."""
 
 
@@ -74,8 +74,8 @@ def _worktree(path: str) -> bool:
 def _ignored_files(root: str) -> tuple[list[str], bool]:
     """git 제외 파일들 (.env · CLAUDE.local.md · 로컬 DB …). 상한을 넘으면 (앞부분, True).
 
-    [파일] 보기는 git 이 아니라 이 PC 의 작업 폴더를 보므로 git 에 올리지 않는 파일도 보인다 (T-14,
-    사용자 결정). 다만 의존성 · 빌드 · 캐시 폴더(_skip_dir)와 작업용 복사본(_worktree)은
+    [파일] 보기는 git 이 아니라 이 PC 의 작업 폴더를 보므로 git 에 올리지 않는 파일도 보인다
+    (사용자 결정). 다만 의존성 · 빌드 · 캐시 폴더(_skip_dir)와 작업용 복사본(_worktree)은
     들어가지 않는다. 안쪽의 독립 저장소는 들어간다 (그 `.git` 폴더는 _skip_dir 이 뺀다).
     git 이 알려 주는 제외 폴더 안만 훑으므로 저장소 전체를 다시 훑지 않는다."""
     listed = _git(
@@ -110,10 +110,10 @@ def _git(root: str, *args: str) -> str | None:
     """git 명령의 출력 (UTF-8). git 이 아니거나 실패하면 None.
 
     --no-optional-locks: 폴링하는 status 가 index 를 다시 쓰면, 같은 저장소에서 커밋하는
-    세션이 index.lock 에 부딪힐 수 있다 (6단계 Fable 검토).
+    세션이 index.lock 에 부딪힐 수 있다.
 
     바이트로 받아 직접 푼다. 글 모드는 줄 안의 CR 하나도 줄바꿈으로 바꿔, diff 의 한 줄이 두 줄로
-    쪼개지고 변경 덩어리가 중간에서 잘렸다 (8단계 Fable 검토).
+    쪼개지고 변경 덩어리가 중간에서 잘렸다.
     """
     try:
         r = subprocess.run(
@@ -135,7 +135,7 @@ _activity_lock = threading.Lock()
 
 def _activity(key: str) -> list[dict]:
     """변경 기록 전체. 파일 크기 · 수정 시각이 그대로면 앞서 읽은 것을 쓴다 — 기록이
-    수만 줄이면 한 번 읽는 데 0.5초가 걸린다 (6단계 Fable 재현)."""
+    수만 줄이면 한 번 읽는 데 0.5초가 걸린다."""
     path = store.project_dir(key) / "activity.jsonl"
     try:
         st = path.stat()
@@ -205,7 +205,7 @@ def _write_json(path, value) -> None:
     임시 파일 이름은 무작위로 — 한 서버의 두 요청이 같은 임시 파일을 쓰지 않게. 짧게 둔다
     (윈도 경로 길이 260자에 걸리지 않게).
     윈도는 다른 곳에서 읽고 있는 파일을 바꿔 끼우지 못하므로(PermissionError)
-    잠깐씩 몇 번 다시 해 본다 (8단계 Fable 검토)."""
+    잠깐씩 몇 번 다시 해 본다."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{uuid.uuid4().hex[:8]}.tmp")
     tmp.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -470,7 +470,7 @@ def files(key: str) -> dict:
 def file_history(key: str, path: str) -> list[dict]:
     """[파일] 보기에서 고른 파일을 바꾼 할 일들 (최근 순). 할 일 없이 고친 변경은 task 가 None.
     한 화면에 파일 하나를 크게 보여 주게 되면서 마우스 올림 설명(생긴 · 최근 · 횟수)만으로는
-    비어 보여 더했다 (T-3)."""
+    비어 보여 더했다."""
     by_task: dict[str | None, dict] = {}
     for rec in _activity(key):
         if rec.get("path") != path:
@@ -683,7 +683,7 @@ def set_members(key: str, data: dict, rows: list[dict], ids: list[str]) -> None:
 
 
 FETCH_EVERY = 60
-"""초. [git] 을 열어 둔 프로젝트는 이 간격으로 원격의 새 커밋을 받아 온다 (사용자 결정, T-10)."""
+"""초. [git] 을 열어 둔 프로젝트는 이 간격으로 원격의 새 커밋을 받아 온다 (사용자 결정)."""
 
 FETCH_TIMEOUT = 30
 """초. 네트워크가 막혀도 fetch 가 끝없이 붙잡지 않게."""
@@ -760,7 +760,7 @@ def git_history(key: str) -> dict:
     """오른쪽 칸: 최근 커밋(제목의 [T-12] 를 할 일로 잇는다)과 커밋 안 된 변경.
     git 이 아니면 비우고 그렇다고 알린다. 커밋이 아직 없는 저장소는 git 이다.
 
-    동료의 커밋도 보이게 (T-10): 원격이 있으면 1분마다 fetch 하고, 내 가지와 그 원격 가지
+    동료의 커밋도 보이게: 원격이 있으면 1분마다 fetch 하고, 내 가지와 그 원격 가지
     (upstream, 예: origin/main)의 커밋을 함께 보인다. 아직 pull 하지 않은 커밋은 incoming."""
     root = project(key)["root"]
     if _git(root, "rev-parse", "--is-inside-work-tree") is None:
@@ -813,7 +813,7 @@ def git_history(key: str) -> dict:
     }
 
 
-# --- 커밋 하나: 바뀐 파일 · 좌우 비교 (T-10) ---
+# --- 커밋 하나: 바뀐 파일 · 좌우 비교 ---
 
 COMMIT_ID = re.compile(r"^[0-9a-f]{7,40}$")
 """커밋 번호 모양. 이 모양만 git 에 넘긴다 (--옵션 같은 글자가 명령 인자로 들어가지 않게)."""
@@ -920,7 +920,7 @@ def commit_diff(
     return {**gitdiff.parse(out), "tooLarge": False}
 
 
-# --- 작업 문서의 바뀐 파일: 이 작업이 그 파일을 어떻게 바꿨나 (T-19) ---
+# --- 작업 문서의 바뀐 파일: 이 작업이 그 파일을 어떻게 바꿨나 ---
 
 
 def snapshot_diff(key: str, before: str | None, after: str | None, full: bool = False) -> dict:
@@ -1126,7 +1126,7 @@ def _commit_task_diff(key: str, number: int, path: str, full: bool) -> dict:
     return {**found, **gitdiff.parse(out), "tooLarge": False}
 
 
-# --- 커밋 AI 요약 (T-11) ---
+# --- 커밋 AI 요약 ---
 
 _summary_locks: dict[str, threading.Lock] = {}
 
@@ -1168,7 +1168,7 @@ def commit_summary(key: str, sha: str, create: bool = False) -> dict | None:
         detail = commit_detail(key, commit)
         patch = _git(root, "diff", "--no-color", "--no-ext-diff", "-M", parent, commit)
         # 커밋 정보나 diff 를 못 받으면(큰 커밋에서 시간 초과 등) 만들지 않는다 — 빈 diff 로 만든
-        # 요약이 저장되면 다시 만들 길이 없다 (8단계 Fable 검토)
+        # 요약이 저장되면 다시 만들 길이 없다
         if detail is None or patch is None:
             raise commit_summary_ai.SummaryError(
                 "커밋 내용을 읽지 못했습니다. 잠시 뒤 다시 시도해 주세요"

@@ -9,7 +9,7 @@ import type { ProjectCandidate, ProjectRow } from '../types'
 /**
  * [+ 프로젝트 추가] 창. 세 길로 폴더를 정한다:
  * 세션 목록에서 온 후보를 누르거나, 경로를 적거나, [폴더 찾기]로 이 PC 의 폴더 선택 창을 띄운다.
- * 작업용 복사본 · 하위 폴더를 골라도 원래 저장소가 등록된다 (ADR 0008).
+ * 작업용 복사본 · 하위 폴더를 골라도 원래 저장소가 등록된다.
  */
 export function AddProjectDialog({
   onClose,

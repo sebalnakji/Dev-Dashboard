@@ -1,6 +1,6 @@
 """윈도우에서만 되는 동작: 터미널 창 열기 · 폴더 선택 창.
 
-메모리 · 프로세스는 OS 공통(system.py, psutil)으로 옮겼다 (S4). 다른 OS 에서는 이 두 버튼을
+메모리 · 프로세스는 OS 공통(system.py, psutil)으로 옮겼다. 다른 OS 에서는 이 두 버튼을
 숨긴다 (local.ABILITIES).
 """
 

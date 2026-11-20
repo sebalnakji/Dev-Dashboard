@@ -5,10 +5,10 @@ import remarkGfm from 'remark-gfm'
 import { CodeView, MermaidView } from './CodeView'
 
 /**
- * [파일] 보기에서 고른 .md 문서를 읽기 좋게 그린다 (T-4).
+ * [파일] 보기에서 고른 .md 문서를 읽기 좋게 그린다.
  *
  * - 맨 위 머리말(--- 사이 tags · 상태 · 날짜 등)은 작은 정보 줄로
- * - 본문은 react-markdown + remark-gfm (표 · 체크박스 · 취소선까지). 이 저장소의 docs 는 ADR · 지식 노트라
+ * - 본문은 react-markdown + remark-gfm (표 · 체크박스 · 취소선까지). 설계 기록 · 지식 노트 같은 문서는
  *   표와 코드 블록이 많아 직접 만든 렌더러로는 금방 깨졌다
  * - Obsidian 위키링크 [[문서]] · [[문서|별칭]] 과 상대 경로 .md 링크는 누르면 그 문서로 넘어간다
  *   (같은 프로젝트에서 이름이 맞는 .md 를 찾는다. 못 찾으면 흐리게 둔다)
@@ -18,7 +18,7 @@ export const MarkdownView = memo(MarkdownViewInner)
 /**
  * 같은 글이면 다시 그리지 않는다 (memo). 부르는 쪽(대화 · 커밋)이 '3분 전'을 흘리려고 1초마다 다시
  * 그려도 마크다운은 그대로 둔다 — 그러지 않으면 드래그로 고른 글이 풀리고 코드 색 · 그림을 매번 다시
- * 만들었다 (8단계 Fable 검토). 그래서 부르는 쪽도 onOpen · mdFiles 를 고정해서 넘긴다.
+ * 만들었다. 그래서 부르는 쪽도 onOpen · mdFiles 를 고정해서 넘긴다.
  */
 function MarkdownViewInner({
   text,
@@ -36,7 +36,7 @@ function MarkdownViewInner({
   onOpen: (path: string) => void
   /** 문서 속 상대 경로 그림(![](images/a.png))의 주소. 없으면 그림 대신 이름만 보인다 (대화 등) */
   imageUrl?: (path: string) => string
-  /** 대화의 답처럼 짧은 글: 제목을 작게, 간격을 좁게 (T-9) */
+  /** 대화의 답처럼 짧은 글: 제목을 작게, 간격을 좁게 */
   compact?: boolean
 }) {
   const s = compact ? COMPACT : DOCUMENT
@@ -202,7 +202,7 @@ function splitFrontmatter(text: string): { meta: [string, string][]; body: strin
 
 /**
  * 코드 블록(``` · ~~~ 로 감싼 줄들)과 줄 안의 `코드`. 위키링크 바꾸기에서 건너뛴다 —
- * bash 의 `if [[ -f a ]]` 나 TOML 의 `[[tool.x]]` 가 링크로 바뀌어 틀린 코드가 보였다 (8단계 Fable 검토).
+ * bash 의 `if [[ -f a ]]` 나 TOML 의 `[[tool.x]]` 가 링크로 바뀌어 틀린 코드가 보였다.
  * 닫히지 않은 코드 블록은 문서 끝까지 코드로 본다 (마크다운도 그렇게 그린다).
  */
 const CODE = /(^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:^ {0,3}\2[^\S\n]*$|(?![\s\S]))|(`+)[^`]*?\3)/gm

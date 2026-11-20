@@ -129,7 +129,7 @@ export const fetchTasks = (key: string) => getJson<TaskRow[]>(`${project(key)}/t
 export const fetchTask = (key: string, number: number, file: string) =>
   getJson<TaskDetail>(`${project(key)}/tasks/${number}?file=${encodeURIComponent(file)}`)
 export const fetchGit = (key: string) => getJson<GitHistory>(`${project(key)}/git`)
-/** 작업 하나가 파일을 어떻게 바꿨나 (T-19). full: 바뀐 곳 주변만이 아니라 파일 전체 */
+/** 작업 하나가 파일을 어떻게 바꿨나. full: 바뀐 곳 주변만이 아니라 파일 전체 */
 export const fetchTaskDiff = (key: string, number: number, path: string, full: boolean) =>
   getJson<TaskFileDiff>(
     `${project(key)}/tasks/${number}/diff?${new URLSearchParams({ path, full: String(full) })}`,

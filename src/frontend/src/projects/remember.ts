@@ -47,7 +47,7 @@ export function seenAt(sessionId: string): string | null {
 export const rememberSeen = (sessionId: string, iso: string) => write(`seen:${sessionId}`, iso)
 
 /**
- * [git] 보기를 마지막으로 볼 때 목록에 있던 커밋 번호들 (프로젝트마다, T-10). 여기 없는 커밋이 '새 커밋'이다.
+ * [git] 보기를 마지막으로 볼 때 목록에 있던 커밋 번호들 (프로젝트마다). 여기 없는 커밋이 '새 커밋'이다.
  * 시각이 아니라 번호로 센다 — 동료가 어제 만든 커밋을 오늘 받아 오면, 만든 시각은 본 시각보다 앞이어도 새것이다.
  * 처음 보는 프로젝트는 null.
  */
