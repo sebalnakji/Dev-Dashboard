@@ -94,7 +94,8 @@ export const fetchCompat = () => getJson<CompatStatus>('/api/claude/compat')
 
 export const addGroup = (name: string) => sendJson('POST', '/api/claude/groups', { name })
 
-export const patchGroup = (name: string, change: { name?: string; collapsed?: boolean }) =>
+/** index: 옮긴 뒤 그룹 목록에서의 자리 (그 그룹을 뺀 목록 기준) */
+export const patchGroup = (name: string, change: { name?: string; collapsed?: boolean; index?: number }) =>
   sendJson('PATCH', groupPath(name), change)
 
 export const deleteGroup = (name: string) => sendJson('DELETE', groupPath(name))

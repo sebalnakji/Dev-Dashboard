@@ -78,6 +78,9 @@ export function SessionPanel() {
   const [dialog, setDialog] = useState<Dialog | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
   const [dropAt, setDropAt] = useState<DropAt | null>(null)
+  // 그룹 끌기: 끄는 그룹 이름과 놓을 자리 (그 그룹을 뺀 그룹 목록에서의 자리)
+  const [dragGroup, setDragGroup] = useState<string | null>(null)
+  const [groupDropAt, setGroupDropAt] = useState<number | null>(null)
   const busy = useRef(false)
   const shownFailures = useRef(new Set<string>())
   const noticeTimer = useRef<number | undefined>(undefined)
@@ -249,6 +252,46 @@ export function SessionPanel() {
     setDropAt(null)
   }
 
+  // --- 그룹 끌어 놓기: 그룹 머리를 눌러 끌면 그룹째 자리를 바꾼다 ---
+
+  const otherGroups = groups.map((g) => g.name).filter((n) => n !== dragGroup)
+
+  function dragOverGroup(e: DragEvent, key: string, grouped: boolean) {
+    e.preventDefault()
+    let at = otherGroups.length // '분류 안 됨' 위로 끌면 맨 끝
+    if (grouped && key !== dragGroup) {
+      const box = e.currentTarget.getBoundingClientRect()
+      const after = e.clientY > box.top + box.height / 2
+      at = otherGroups.indexOf(key) + (after ? 1 : 0)
+    } else if (key === dragGroup) {
+      at = groups.findIndex((g) => g.name === key) // 제자리
+    }
+    if (groupDropAt !== at) setGroupDropAt(at)
+  }
+
+  function dropGroup(e: DragEvent) {
+    e.preventDefault()
+    const name = dragGroup
+    const at = groupDropAt
+    endGroupDrag()
+    if (!name || at == null || groups[at]?.name === name) return
+    // 바로 옮겨 보이고, 서버에 저장한다
+    setView((v) => {
+      if (!v) return v
+      const moved = v.groups.find((g) => g.name === name)
+      if (!moved) return v
+      const rest = v.groups.filter((g) => g.name !== name)
+      rest.splice(Math.min(at, rest.length), 0, moved)
+      return { ...v, groups: rest }
+    })
+    void run(() => patchGroup(name, { index: at }))
+  }
+
+  function endGroupDrag() {
+    setDragGroup(null)
+    setGroupDropAt(null)
+  }
+
   const interactive = view?.interactive ?? []
   const connected = sessions.filter((r) => stateOf(r) === 'on').length + interactive.length
   const total = sessions.length + interactive.length
@@ -273,15 +316,26 @@ export function SessionPanel() {
         </>
       }
       side={
-        <button
-          type="button"
-          className={BUTTON}
-          title="새 백그라운드 세션을 만듭니다"
-          disabled={!view}
-          onClick={() => setDialog({ kind: 'new', group: null })}
-        >
-          + 세션
-        </button>
+        <span className="flex items-center gap-1.5">
+          <button
+            type="button"
+            className={BUTTON}
+            title="세션을 묶을 그룹을 만듭니다. 그룹 이름을 눌러 끌면 순서를 바꿀 수 있습니다"
+            disabled={!view}
+            onClick={() => setDialog({ kind: 'addGroup' })}
+          >
+            + 새 그룹
+          </button>
+          <button
+            type="button"
+            className={BUTTON}
+            title="새 백그라운드 세션을 만듭니다"
+            disabled={!view}
+            onClick={() => setDialog({ kind: 'new', group: null })}
+          >
+            + 세션
+          </button>
+        </span>
       }
     >
       {offline && <p className="mb-3.5 rounded-md bg-[#3a2621] px-2.5 py-2 text-xs text-[#f0b8a4]">{OFFLINE}</p>}
@@ -303,10 +357,30 @@ export function SessionPanel() {
         return (
           <section
             key={`g:${s.key}`}
-            className="mb-[18px]"
-            onDragOver={(e) => dragOverSection(e, s.key)}
-            onDrop={drop}
+            className={`mb-[18px] ${dragGroup === s.key ? 'opacity-40' : ''}`}
+            onDragOver={(e) => (dragGroup ? dragOverGroup(e, s.key, s.grouped) : dragOverSection(e, s.key))}
+            onDrop={(e) => (dragGroup ? dropGroup(e) : drop(e))}
           >
+            {/* 그룹을 끌 때 놓을 자리 (이 그룹 위) */}
+            {dragGroup && s.grouped && groupDropAt === otherGroups.indexOf(s.key) && s.key !== dragGroup && (
+              <div className="mx-1.5 mb-1 h-0.5 rounded bg-accent" />
+            )}
+            {dragGroup && !s.grouped && groupDropAt === otherGroups.length && (
+              <div className="mx-1.5 mb-1 h-0.5 rounded bg-accent" />
+            )}
+            <div
+              draggable={s.grouped}
+              onDragStart={(e) => {
+                if (!s.grouped) return
+                e.dataTransfer.effectAllowed = 'move'
+                e.dataTransfer.setData('text/plain', `group:${s.key}`)
+                setMenu(null)
+                setDragGroup(s.key)
+              }}
+              onDragEnd={endGroupDrag}
+              className={s.grouped ? 'cursor-grab' : ''}
+              title={s.grouped ? '눌러서 끌면 그룹 순서를 바꿉니다' : undefined}
+            >
             <SectionHeader
               title={s.title}
               count={isClosed ? rows.length : undefined}
@@ -330,6 +404,7 @@ export function SessionPanel() {
                 </>
               )}
             </SectionHeader>
+            </div>
             {!isClosed &&
               rows.map((row) => (
                 <SessionLine
@@ -371,16 +446,6 @@ export function SessionPanel() {
           </section>
         )
       })}
-
-      {view && (
-        <button
-          type="button"
-          onClick={() => setDialog({ kind: 'addGroup' })}
-          className="mb-[18px] cursor-pointer px-1.5 text-xs text-gray-500 hover:text-accent"
-        >
-          + 새 그룹
-        </button>
-      )}
 
       {interactive.length > 0 && (
         <section className="mb-[18px]">
@@ -462,12 +527,31 @@ export function SessionPanel() {
 function CompatNotice({ status }: { status: CompatStatus | null }) {
   if (!status?.version || status.version === status.passedVersion) return null
   const failedNow = status.lastRun?.version === status.version && !status.lastRun.passed
-  const text = failedNow
-    ? `Claude Code ${status.version} 호환 시험에서 실패한 항목이 있습니다. 세션 연결 · 이어 열기가 기대와 다르게 움직일 수 있습니다. 결과: ~/.devdash/compat.json`
-    : `시험하지 않은 Claude Code 버전입니다 (지금 ${status.version}` +
-      (status.passedVersion ? `, 마지막 통과 ${status.passedVersion})` : ')') +
-      '. 터미널에서 devdash check-claude 를 실행해 확인해 주세요 (몇 분 걸립니다).'
-  return <p className="mb-3.5 rounded-md bg-[#3a2621] px-2.5 py-2 text-xs text-[#f0b8a4]">{text}</p>
+  // 제목 · 버전 · 할 일을 줄로 나눈다 — 한 문장으로 이어 쓰니 명령어가 묻혀 읽기 어려웠다
+  return (
+    <div className="mb-3.5 rounded-md bg-[#3a2621] px-3 py-2.5 text-xs leading-relaxed text-[#f0b8a4]">
+      <p className="font-semibold text-[#f6cbb9]">
+        {failedNow ? 'Claude Code 호환 시험에서 실패한 항목이 있습니다' : '시험하지 않은 Claude Code 버전입니다'}
+      </p>
+      <p className="mt-0.5 tabular-nums text-[#d9a08c]">
+        지금 {status.version}
+        {status.passedVersion && ` · 마지막으로 통과한 버전 ${status.passedVersion}`}
+      </p>
+      {failedNow ? (
+        <p className="mt-1.5">
+          세션 연결 · 이어 열기가 기대와 다르게 움직일 수 있습니다. 결과: <Code>~/.devdash/compat.json</Code>
+        </p>
+      ) : (
+        <p className="mt-1.5">
+          터미널에서 <Code>devdash check-claude</Code> 를 실행해 확인해 주세요 (몇 분 걸립니다).
+        </p>
+      )}
+    </div>
+  )
+}
+
+function Code({ children }: { children: ReactNode }) {
+  return <code className="rounded bg-black/25 px-1 py-px font-mono text-[11px] text-[#f6cbb9]">{children}</code>
 }
 
 function SectionHeader({
