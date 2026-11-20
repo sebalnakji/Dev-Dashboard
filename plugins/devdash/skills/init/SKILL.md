@@ -3,7 +3,7 @@ name: init
 description: 지금 프로젝트를 devdash 에 등록해 작업 기록(할 일 파일 · 자동 변경 기록)을 켠다. 사용자가 /devdash:init 으로 부를 때만 쓴다.
 disable-model-invocation: true
 argument-hint: "[표시 이름 — 따옴표 없이]"
-allowed-tools: Bash(sh *run.sh devdash_store.py register *)
+allowed-tools: Bash(sh *run.sh* devdash_store.py register *)
 ---
 
 # 프로젝트 등록
