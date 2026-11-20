@@ -7,7 +7,7 @@ import type { ChatMessage, ChatResponse, ChatWork } from '../types'
 import { DiffView, LineCounts } from './GitView'
 import { MarkdownView } from './MarkdownView'
 
-/** 처음에 보이는 질문 수, [더 보기]마다 더하는 수 (사용자 결정). */
+/** 처음에 보이는 질문 수, [더 보기]마다 더하는 수. */
 const PAGE = 10
 /** 보는 동안 새 대화를 가져오는 간격. */
 const REFRESH_MS = 5000
@@ -120,7 +120,7 @@ export function ChatView({
           {t.answer && (
             <div className={t.ask ? 'mt-6' : ''}>
               <Who name="Claude" at={t.answer.at} now={now} tools={t.answer.tools} />
-              {/* 질문은 파랑 상자, 답은 초록 상자 (사용자 결정) */}
+              {/* 질문은 파랑 상자, 답은 초록 상자 */}
               <div className="mt-2 rounded-md border-l-2 border-on bg-[#262f29] px-4 py-3">
                 {t.answer.text ? (
                   <MarkdownView text={t.answer.text} path="" mdFiles={mdFiles} onOpen={onOpenFile} compact />
@@ -130,7 +130,7 @@ export function ChatView({
               </div>
             </div>
           )}
-          {/* 질문 → 답 → 작업: 답을 읽고 나서 무엇을 고쳤는지 본다 (작업 상자는 보라, 사용자 결정) */}
+          {/* 질문 → 답 → 작업: 답을 읽고 나서 무엇을 고쳤는지 본다 (작업 상자는 보라) */}
           {t.answer?.work && (
             <div className="mt-6">
               <WorkBox projectKey={projectKey} shellTracked={data.shellTracked !== false} work={t.answer.work} onOpenFile={onOpenFile} onOpenTask={onOpenTask} />

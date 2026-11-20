@@ -175,7 +175,7 @@ export function ProjectView({ project, offline }: { project: ProjectRow; offline
   }, [view, commits, project.key])
 
   const doing = list?.filter((t) => t.status === 'doing').length
-  // 순서와 이름은 사용자 결정: 세션 · 작업 · 파일 · 깃
+  // 순서: 세션 · 작업 · 파일 · 깃
   const tabs: { name: ProjectViewName; label: string; count?: number; fresh?: boolean }[] = [
     { name: 'sessions', label: '세션', count: sessions.data?.length },
     { name: 'tasks', label: '작업', count: doing },
@@ -222,7 +222,7 @@ export function ProjectView({ project, offline }: { project: ProjectRow; offline
             </SlotView>
           }
           right={
-            // 고른 것이 없으면 비워 둔다 — 사용법 안내 문장은 두지 않는다 (사용자 결정)
+            // 고른 것이 없으면 비워 둔다 — 사용법 안내 문장은 두지 않는다
             chosenFile == null ? null : (
               <>
                 {doc.error && !offline && <p className={`mb-3 ${WARNING}`}>{doc.error}</p>}

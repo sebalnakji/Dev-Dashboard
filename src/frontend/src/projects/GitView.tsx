@@ -253,7 +253,7 @@ export function CommitView({
 
 /**
  * AI 요약 상자. 저장된 요약이 있으면 바로 보이고, 없으면 [AI 요약 만들기]를 누를 때만 만든다
- * (사용자 결정 — 보기를 열 때 자동으로 골라지는 커밋까지 Sonnet 을 부르지 않게).
+ * (보기를 열 때 자동으로 골라지는 커밋까지 Sonnet 을 부르지 않게).
  * 만드는 중에 다른 커밋으로 옮겨도 서버는 끝까지 만들어 저장한다 — 다시 열면 바로 보인다.
  */
 function SummaryBox({ projectKey, hash }: { projectKey: string; hash: string }) {

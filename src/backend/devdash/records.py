@@ -74,8 +74,8 @@ def _worktree(path: str) -> bool:
 def _ignored_files(root: str) -> tuple[list[str], bool]:
     """git 제외 파일들 (.env · CLAUDE.local.md · 로컬 DB …). 상한을 넘으면 (앞부분, True).
 
-    [파일] 보기는 git 이 아니라 이 PC 의 작업 폴더를 보므로 git 에 올리지 않는 파일도 보인다
-    (사용자 결정). 다만 의존성 · 빌드 · 캐시 폴더(_skip_dir)와 작업용 복사본(_worktree)은
+    [파일] 보기는 git 이 아니라 이 PC 의 작업 폴더를 보므로 git 에 올리지 않는 파일도 보인다.
+    다만 의존성 · 빌드 · 캐시 폴더(_skip_dir)와 작업용 복사본(_worktree)은
     들어가지 않는다. 안쪽의 독립 저장소는 들어간다 (그 `.git` 폴더는 _skip_dir 이 뺀다).
     git 이 알려 주는 제외 폴더 안만 훑으므로 저장소 전체를 다시 훑지 않는다."""
     listed = _git(
@@ -489,7 +489,7 @@ READ_LIMIT = 1024 * 1024
 
 IMAGE_LIMIT = 10 * 1024 * 1024
 """[파일] 보기 · 문서 속 그림 크기 상한 (바이트). 화면 캡처는 넉넉히 들어가고,
-수백 MB 를 잘못 눌러도 브라우저가 멈추지 않게 (사용자 결정)."""
+수백 MB 를 잘못 눌러도 브라우저가 멈추지 않게."""
 
 IMAGE_TYPES = {
     ".png": "image/png",
@@ -683,7 +683,7 @@ def set_members(key: str, data: dict, rows: list[dict], ids: list[str]) -> None:
 
 
 FETCH_EVERY = 60
-"""초. [git] 을 열어 둔 프로젝트는 이 간격으로 원격의 새 커밋을 받아 온다 (사용자 결정)."""
+"""초. [git] 을 열어 둔 프로젝트는 이 간격으로 원격의 새 커밋을 받아 온다."""
 
 FETCH_TIMEOUT = 30
 """초. 네트워크가 막혀도 fetch 가 끝없이 붙잡지 않게."""

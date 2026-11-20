@@ -54,11 +54,11 @@ def test_배치는_없거나_옛_형식이면_비어_있다(tmp_path):
 
 def test_그룹_만들기_이름_바꾸기_지우기():
     data = registry.empty()
-    registry.add_group(data, " LRS ")
+    registry.add_group(data, " 업무 ")
     with pytest.raises(ValueError):
-        registry.add_group(data, "LRS")
-    registry.place(data, ID_A, "LRS", [ID_A])
-    registry.rename_group(data, "LRS", "회사")
+        registry.add_group(data, "업무")
+    registry.place(data, ID_A, "업무", [ID_A])
+    registry.rename_group(data, "업무", "회사")
     assert registry.group_of(data, ID_A) == "회사"
     registry.remove_group(data, "회사")
     # 세션은 지우지 않고 "분류 안 됨"으로

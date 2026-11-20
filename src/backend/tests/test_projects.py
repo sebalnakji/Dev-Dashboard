@@ -793,7 +793,7 @@ def test_같은_번호가_둘이면_화면이_고른_파일의_정리_문서를_
     assert client.get(f"/api/projects/{key}/tasks/1", params={"file": "없음.md"}).status_code == 404
 
 
-# --- 순서 바꾸기 · 이름 바꾸기 · 등록 해제 (사용자 요청) ---
+# --- 순서 바꾸기 · 이름 바꾸기 · 등록 해제 ---
 
 
 def test_끌어서_정한_순서대로_목록이_나오고_새_프로젝트는_뒤에_붙는다(client, env):

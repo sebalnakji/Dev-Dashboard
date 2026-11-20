@@ -5,8 +5,8 @@
 
     {
       "version": 2,
-      "groups":   [{"name": "LRS", "collapsed": false}, ...],     목록 순서 = 화면 순서
-      "sessions": {"<목록 번호>": {"group": "LRS", "order": 0,
+      "groups":   [{"name": "업무", "collapsed": false}, ...],     목록 순서 = 화면 순서
+      "sessions": {"<목록 번호>": {"group": "업무", "order": 0,
                                    "project": "<프로젝트 키>"}},   project 는 사람이 바꾼 때만
       "deleted":  [{"id", "name", "group", "cwd", "sessionId", "deletedAt"}, ...]
     }

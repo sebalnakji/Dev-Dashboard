@@ -5,7 +5,7 @@ import { WARNING } from '../components/styles'
 import type { TaskDetail, TaskFileDiff, TaskRow, TaskStatus } from '../types'
 import { DiffView } from './GitView'
 
-// 탭이 '작업'이라 안에서는 상태만 짧게 (사용자 결정). 문서 섹션의 '한 일'과 겹치지 않게 '완료'
+// 탭이 '작업'이라 안에서는 상태만 짧게. 문서 섹션의 '한 일'과 겹치지 않게 '완료'
 const STATUS_LABEL: Record<TaskStatus, string> = { doing: '진행 중', todo: '대기', done: '완료' }
 const STATUS_ORDER: TaskStatus[] = ['doing', 'todo', 'done']
 const STATUS_COLOR: Record<TaskStatus, string> = {
