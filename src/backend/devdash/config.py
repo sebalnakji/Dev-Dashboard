@@ -41,8 +41,6 @@ class ServerConfig(BaseModel):
     known_hosts: Path | None = None
 
     docker_sudo: bool = False
-    control: bool = False
-    """컨테이너 제어(start/stop/restart) 허용 여부. 기본은 읽기 전용이다."""
 
     poll: PollConfig = Field(default_factory=PollConfig)
     connect_timeout: float = Field(default=10.0, gt=0)

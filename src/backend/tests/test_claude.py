@@ -125,10 +125,6 @@ def test_신뢰하지_않은_폴더는_승인_방법을_알려준다():
     assert "신뢰" in agents.explain(1, "Error: Workspace not trusted")
 
 
-def test_복사본이_생기면_실패로_본다():
-    assert "복사본" in agents.explain(0, "started a copy of session aaaa")
-
-
 def test_그_밖의_실패는_첫_줄을_돌려주고_성공은_None():
     assert agents.explain(2, "\n  boom\nmore") == "boom"
     assert agents.explain(0, "ok") is None

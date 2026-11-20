@@ -186,14 +186,13 @@ async def _check(
 
 def cmd_list(config_path: Path | None) -> int:
     config = load_config(config_path)
-    print(f"{pad('ID', 16)} {pad('이름', 18)} {pad('접속', 28)} {pad('제어', 10)} docker sudo")
-    print("-" * 78)
+    print(f"{pad('ID', 16)} {pad('이름', 18)} {pad('접속', 28)} docker sudo")
+    print("-" * 67)
     for s in config.servers:
         target = f"{s.user}@{s.host}:{s.port}"
-        control = "허용" if s.control else "읽기 전용"
         print(
             f"{pad(s.id, 16)} {pad(s.display_name, 18)} {pad(target, 28)} "
-            f"{pad(control, 10)} {'예' if s.docker_sudo else '아니오'}"
+            f"{'예' if s.docker_sudo else '아니오'}"
         )
     return 0
 

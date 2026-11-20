@@ -74,3 +74,14 @@ def test_세션_배치도_DEVDASH_HOME_에_쓴다(home):
         registry.add_group(data, "G")
     assert registry.load()["groups"] == [{"name": "G", "collapsed": False}]
     assert (home / "sessions.json").exists()
+
+
+def test_예전_설정의_control_항목은_무시하고_읽는다(home):
+    """읽는 곳이 없어 지운 설정 — 이미 적어 둔 사람의 설정 파일이 깨지지 않게."""
+    home.mkdir()
+    (home / "servers.yaml").write_text(
+        "servers:\n  - id: a\n    host: 10.0.0.1\n    user: u\n    control: true\n",
+        encoding="utf-8",
+    )
+    (server,) = load_config().servers
+    assert server.id == "a" and not hasattr(server, "control")

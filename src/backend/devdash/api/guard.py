@@ -9,7 +9,7 @@
   커밋 요약(코드가 Anthropic 으로 나간다)이나 fetch 가 돌 수 있다. 상태를 바꾸는 요청은 Origin 이
   있으면 이 PC 주소인지 본다 (Origin 이 없는 요청은 브라우저 밖 — curl 등 — 이라 막지 않는다)
 
-`--host` 로 다른 주소에서 듣게 하면 그 주소로 연 화면도 막힌다. 지금은 이 PC 안에서만 쓴다.
+`--host` 도 이 PC 안의 주소(LOCAL)만 받는다 — 다른 PC 에서 닿는 주소로는 듣지 않는다.
 """
 
 from __future__ import annotations

@@ -38,6 +38,18 @@ def cmd_serve(config_path: Path | None, host: str, port: int) -> int:
     return 0
 
 
+def loopback(value: str) -> str:
+    """--host 는 이 PC 안의 주소만. 대시보드는 파일 · 대화 · 세션 조작을 인증 없이 주므로
+    다른 PC 에서 닿는 주소(0.0.0.0 · 사설 IP 등)로 듣지 않는다."""
+    from devdash.api.guard import LOCAL
+
+    if value.lower() not in LOCAL:
+        raise argparse.ArgumentTypeError(
+            f"이 PC 안의 주소만 쓸 수 있습니다 ({' · '.join(sorted(LOCAL))}): {value}"
+        )
+    return value
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="devdash", description=__doc__)
     parser.add_argument(
@@ -65,7 +77,12 @@ def main(argv: list[str] | None = None) -> int:
     check.add_argument("--interval", type=float, default=2.0, help="두 샘플 사이 간격(초). 기본 2")
 
     serve = sub.add_parser("serve", help="웹 대시보드를 띄운다")
-    serve.add_argument("--host", default="127.0.0.1", help="바인딩 주소. 기본은 이 PC 안에서만")
+    serve.add_argument(
+        "--host",
+        type=loopback,
+        default="127.0.0.1",
+        help="바인딩 주소. 이 PC 안의 주소(127.0.0.1 · ::1 · localhost)만",
+    )
     # 8000 은 다른 개발 서버가 잡고 있는 경우가 많아 덜 붐비는 번호를 쓴다.
     # 바꿀 때는 src/frontend/vite.config.ts 의 프록시 대상도 같이 고쳐야 한다.
     serve.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"포트. 기본 {DEFAULT_PORT}")

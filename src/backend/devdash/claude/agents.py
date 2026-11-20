@@ -132,8 +132,6 @@ def explain(returncode: int, output: str) -> str | None:
             "이 폴더를 아직 신뢰하지 않았습니다. 그 폴더에서 claude 를 한 번 실행해 "
             "신뢰를 승인한 뒤 다시 해 주세요"
         )
-    if "started a copy" in output:
-        return "원본 대신 복사본이 생겼습니다. claude agents 로 확인해 주세요"
     if returncode != 0:
         first = next((ln.strip() for ln in output.splitlines() if ln.strip()), "")
         return first or f"claude 가 실패했습니다 (코드 {returncode})"

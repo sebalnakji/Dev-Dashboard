@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -43,3 +44,19 @@ def test_다른_사이트에서_보낸_POST_는_막는다():
     assert c.post("/x", headers={"origin": "null"}).status_code == 403  # 샌드박스 iframe 등
     # 읽기는 막지 않는다 — 다른 사이트가 응답을 읽는 것은 브라우저의 CORS 가 막는다
     assert c.get("/x", headers={"origin": "https://evil.example"}).status_code == 200
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "::1", "localhost", "LOCALHOST"])
+def test_serve_는_이_PC_안의_주소로만_듣는다(host):
+    from devdash.__main__ import loopback
+
+    assert loopback(host) == host
+
+
+@pytest.mark.parametrize("host", ["0.0.0.0", "192.168.0.10", "::", "example.com", ""])
+def test_다른_PC_에서_닿는_주소는_거절한다(host, capsys):
+    from devdash.__main__ import main
+
+    with pytest.raises(SystemExit) as stop:
+        main(["serve", "--host", host])
+    assert stop.value.code == 2 and "이 PC 안의 주소만" in capsys.readouterr().err
