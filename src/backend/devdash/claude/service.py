@@ -132,6 +132,7 @@ class SessionService:
         self._failures: dict[str, tuple[str, float]] = {}  # 번호 → (이유, 시각)
         self._lists: tuple[float, list, list] = (0.0, [], [])
         self._refreshing = False  # 목록을 뒤에서 받는 중
+        self._generation = 0  # _drop_cache 마다 오른다 — 그 전에 출발한 뒤 받기는 버린다
         self._lock = threading.Lock()
 
     def _background(self, fn, *args) -> None:
@@ -157,15 +158,18 @@ class SessionService:
             every = pool.submit(agents.all_sessions)
             return time.time(), live.result(), every.result()
 
-    def _start_refresh(self) -> None:
+    def _start_refresh(self, generation: int) -> None:
         """목록을 뒤에서 새로 받는다. 시험은 이것만 바꿔 끼운다."""
-        threading.Thread(target=self._refresh_lists, daemon=True).start()
+        threading.Thread(target=self._refresh_lists, args=(generation,), daemon=True).start()
 
-    def _refresh_lists(self) -> None:
+    def _refresh_lists(self, generation: int) -> None:
+        """generation: 출발할 때의 목록 세대. 그사이 _drop_cache(연결 · 삭제 뒤)로 세대가 바뀌었으면
+        받아 온 목록은 그 일 전의 상태일 수 있어 버린다 — 덮어쓰면 [삭제] · [연결] 직후 몇 초 동안
+        예전 상태가 보였다."""
         try:
             fresh = self._fetch_lists()
             with self._lock:
-                if fresh[0] > self._lists[0]:
+                if generation == self._generation and fresh[0] > self._lists[0]:
                     self._lists = fresh
         except Exception:
             logger.exception("세션 목록을 뒤에서 받지 못했다")
@@ -181,7 +185,7 @@ class SessionService:
                 # 조금 지난 목록은 바로 주고 뒤에서 새로 받는다
                 if not self._refreshing:
                     self._refreshing = True
-                    self._start_refresh()
+                    self._start_refresh(self._generation)
                 return self._lists[1], self._lists[2]
             # 목록이 없거나(처음 · 연결/삭제 뒤) 오래됐으면 그 자리에서 받는다.
             # 잠근 채 받아 동시에 온 요청이 claude 를 두 번 띄우지 않게
@@ -191,6 +195,7 @@ class SessionService:
     def _drop_cache(self) -> None:
         with self._lock:
             self._lists = (0.0, [], [])
+            self._generation += 1  # 이미 출발한 뒤 받기의 결과를 쓰지 않게
 
     def collect(self) -> tuple[dict[str, dict], list[dict]]:
         """(목록 번호 → 백그라운드 세션, 대화형 세션 목록).

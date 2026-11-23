@@ -850,7 +850,7 @@ def test_세션_목록은_조금_지났으면_바로_주고_뒤에서_새로_받
     monkeypatch.setattr(agents, "live_sessions", lambda: [])
     s = SessionService(tmp_path / "sessions.json")
     started = []
-    s._start_refresh = lambda: started.append(s._refresh_lists)
+    s._start_refresh = lambda gen: started.append(lambda: s._refresh_lists(gen))
     assert s.collect()[0][ID_A]["name"] == "이름1"  # 처음은 그 자리에서
     s._lists = (s._lists[0] - 5, *s._lists[1:])  # 5초 지남 — 2초 넘고 15초 안
     assert s.collect()[0][ID_A]["name"] == "이름1" and len(started) == 1  # 바로 주고 뒤에서
@@ -861,3 +861,26 @@ def test_세션_목록은_조금_지났으면_바로_주고_뒤에서_새로_받
     assert s.collect()[0][ID_A]["name"] == "이름2"
     s._drop_cache()  # 연결 · 삭제 뒤에는 그 자리에서
     assert s.collect()[0][ID_A]["name"] == "이름3"
+
+
+def test_연결_삭제로_비운_뒤에는_그_전에_출발한_뒤_받기를_쓰지_않는다(tmp_path, monkeypatch):
+    """_drop_cache 가 목록 시각을 0 으로 돌린 뒤 늦게 끝난 뒤 받기가 덮어쓰면, [삭제] 직후 몇 초 동안
+    지운 세션이 다시 보였다."""
+    state = {"name": "지우기 전"}
+    monkeypatch.setattr(
+        agents, "all_sessions", lambda: [bg(ID_A, FIRST_A, state["name"], str(tmp_path))]
+    )
+    monkeypatch.setattr(agents, "live_sessions", lambda: [])
+    s = SessionService(tmp_path / "sessions.json")
+    started = []
+    s._start_refresh = lambda gen: started.append(lambda: s._refresh_lists(gen))
+    s.collect()
+    s._lists = (s._lists[0] - 5, *s._lists[1:])  # 조금 지남 → 뒤에서 받기가 출발
+    s.collect()
+    assert len(started) == 1
+    s._drop_cache()  # [삭제] · [연결] 뒤
+    state["name"] = "지운 뒤"
+    assert s.collect()[0][ID_A]["name"] == "지운 뒤"  # 그 자리에서 새로 받는다
+    state["name"] = "지우기 전"  # 늦게 끝난 뒤 받기는 그 일 전의 목록을 들고 온다
+    started[0]()
+    assert s.collect()[0][ID_A]["name"] == "지운 뒤"  # 덮어쓰지 않는다
