@@ -20,6 +20,7 @@ import os
 import threading
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from devdash.claude import agents, chat, registry
@@ -33,6 +34,9 @@ FAIL_SHOW = 60
 """초. 실패 이유를 화면 갱신에 실어 보내는 시간. 화면은 같은 실패를 한 번만 띄운다."""
 
 LIST_CACHE_SECONDS = 2
+STALE_SECONDS = 15
+"""이 안의 목록은 바로 주고 뒤에서 새로 받는다 — 요청이 claude 를 기다리지 않게. 넘으면(오래 아무도
+안 봤으면) 그 자리에서 받는다. 연결 · 삭제 뒤에는 _drop_cache 로 비워 그 자리에서 받는다."""
 """claude agents 는 1~2초 걸린다. 화면이 여러 번 물어도 이 안이면 한 번만 부른다."""
 
 Result = str | dict | None
@@ -127,6 +131,7 @@ class SessionService:
         self._ops: dict[str, tuple[str, float]] = {}  # 번호 → (start|stop|delete|restore, 시각)
         self._failures: dict[str, tuple[str, float]] = {}  # 번호 → (이유, 시각)
         self._lists: tuple[float, list, list] = (0.0, [], [])
+        self._refreshing = False  # 목록을 뒤에서 받는 중
         self._lock = threading.Lock()
 
     def _background(self, fn, *args) -> None:
@@ -144,10 +149,43 @@ class SessionService:
 
     # --- 목록 ---
 
+    @staticmethod
+    def _fetch_lists() -> tuple[float, list, list]:
+        """claude agents --json · --all --json 을 동시에 (하나에 0.3~0.4초 — 차례로 하면 두 배)."""
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            live = pool.submit(agents.live_sessions)
+            every = pool.submit(agents.all_sessions)
+            return time.time(), live.result(), every.result()
+
+    def _start_refresh(self) -> None:
+        """목록을 뒤에서 새로 받는다. 시험은 이것만 바꿔 끼운다."""
+        threading.Thread(target=self._refresh_lists, daemon=True).start()
+
+    def _refresh_lists(self) -> None:
+        try:
+            fresh = self._fetch_lists()
+            with self._lock:
+                if fresh[0] > self._lists[0]:
+                    self._lists = fresh
+        except Exception:
+            logger.exception("세션 목록을 뒤에서 받지 못했다")
+        finally:
+            self._refreshing = False
+
     def _cached_lists(self) -> tuple[list, list]:
         with self._lock:
-            if time.time() - self._lists[0] > LIST_CACHE_SECONDS:
-                self._lists = (time.time(), agents.live_sessions(), agents.all_sessions())
+            age = time.time() - self._lists[0]
+            if age <= LIST_CACHE_SECONDS:
+                return self._lists[1], self._lists[2]
+            if self._lists[0] and age <= STALE_SECONDS:
+                # 조금 지난 목록은 바로 주고 뒤에서 새로 받는다
+                if not self._refreshing:
+                    self._refreshing = True
+                    self._start_refresh()
+                return self._lists[1], self._lists[2]
+            # 목록이 없거나(처음 · 연결/삭제 뒤) 오래됐으면 그 자리에서 받는다.
+            # 잠근 채 받아 동시에 온 요청이 claude 를 두 번 띄우지 않게
+            self._lists = self._fetch_lists()
             return self._lists[1], self._lists[2]
 
     def _drop_cache(self) -> None:

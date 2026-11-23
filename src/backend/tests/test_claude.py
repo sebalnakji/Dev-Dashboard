@@ -317,6 +317,7 @@ def svc(tmp_path, monkeypatch):
     s._background = lambda fn, *args: calls.append(("bg", fn, args))
     # 목록을 2초 기억하면 시험이 고친 목록이 안 보인다
     monkeypatch.setattr(service, "LIST_CACHE_SECONDS", -1)
+    monkeypatch.setattr(service, "STALE_SECONDS", -1)  # 뒤에서 받지 않고 그 자리에서
     s.every, s.live, s.calls, s.cwd = every, live, calls, cwd
     return s
 
@@ -833,3 +834,30 @@ def test_켜진_옛_세대는_숨기지_않고_삭제할_때도_따로_둔다(ch
     chain.delete(chain.entry(ID_B))
     run_background(chain)
     assert removed == [ID_B, ID_C] and ("kill", 9) not in chain.calls
+
+
+# --- 성능: 세션 목록은 조금 지난 것을 바로 주고 뒤에서 새로 받는다 ---
+
+
+def test_세션_목록은_조금_지났으면_바로_주고_뒤에서_새로_받는다(tmp_path, monkeypatch):
+    fetched = []
+
+    def fake_all():
+        fetched.append("all")
+        return [bg(ID_A, FIRST_A, f"이름{len(fetched)}", str(tmp_path))]
+
+    monkeypatch.setattr(agents, "all_sessions", fake_all)
+    monkeypatch.setattr(agents, "live_sessions", lambda: [])
+    s = SessionService(tmp_path / "sessions.json")
+    started = []
+    s._start_refresh = lambda: started.append(s._refresh_lists)
+    assert s.collect()[0][ID_A]["name"] == "이름1"  # 처음은 그 자리에서
+    s._lists = (s._lists[0] - 5, *s._lists[1:])  # 5초 지남 — 2초 넘고 15초 안
+    assert s.collect()[0][ID_A]["name"] == "이름1" and len(started) == 1  # 바로 주고 뒤에서
+    assert (
+        s.collect()[0][ID_A]["name"] == "이름1" and len(started) == 1
+    )  # 받는 중이면 또 띄우지 않는다
+    started[0]()  # 뒤의 일을 돌린다
+    assert s.collect()[0][ID_A]["name"] == "이름2"
+    s._drop_cache()  # 연결 · 삭제 뒤에는 그 자리에서
+    assert s.collect()[0][ID_A]["name"] == "이름3"

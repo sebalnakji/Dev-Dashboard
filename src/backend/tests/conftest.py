@@ -12,3 +12,9 @@ import pytest
 @pytest.fixture(autouse=True)
 def _devdash_home(tmp_path_factory, monkeypatch):
     monkeypatch.setenv("DEVDASH_HOME", str(tmp_path_factory.mktemp("devdash-home")))
+
+
+@pytest.fixture(autouse=True)
+def _no_warm_up(monkeypatch):
+    """서버를 띄우는 시험이 실제 claude 목록을 미리 읽지 않게 (devdash.app._warm_up)."""
+    monkeypatch.setenv("DEVDASH_NO_WARMUP", "1")

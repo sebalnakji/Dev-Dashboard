@@ -87,6 +87,43 @@ def put(project_dir: Path, content: bytes) -> str:
     return _git(project_dir, "hash-object", "-w", "--stdin", data=content).decode().strip()
 
 
+EMPTY_BLOB = "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+"""빈 내용의 내용 번호 (git 이 정한 고정값). 비교의 '없던 파일' 쪽에 쓴다."""
+
+
+_has_empty: set[str] = set()
+
+
+def empty(project_dir: Path) -> str:
+    """빈 내용을 넣고 그 번호. 이 프로세스에서 그 저장소에 한 번 넣었으면 git 을 부르지 않는다
+    (폴더를 확인하지 않는다 — 윈도우의 긴 경로에서 실패한다)."""
+    if str(project_dir) not in _has_empty:
+        put(project_dir, b"")
+        _has_empty.add(str(project_dir))
+    return EMPTY_BLOB
+
+
+def get_many(project_dir: Path, blobs: list[str]) -> dict[str, bytes | None]:
+    """여러 내용을 git 한 번으로 (cat-file --batch). 없는 번호는 None."""
+    wanted = list(dict.fromkeys(b for b in blobs if b))
+    if not wanted:
+        return {}
+    out = _git(project_dir, "cat-file", "--batch", data=("\n".join(wanted) + "\n").encode())
+    found: dict[str, bytes | None] = {}
+    pos = 0
+    for blob in wanted:
+        end = out.index(b"\n", pos)
+        header = out[pos:end].decode()
+        pos = end + 1
+        if header.endswith("missing"):
+            found[blob] = None
+            continue
+        size = int(header.rsplit(" ", 1)[1])
+        found[blob] = out[pos : pos + size]
+        pos += size + 1  # 내용 뒤 줄바꿈
+    return found
+
+
 def get(project_dir: Path, blob: str) -> bytes:
     return _git(project_dir, "cat-file", "blob", blob)
 

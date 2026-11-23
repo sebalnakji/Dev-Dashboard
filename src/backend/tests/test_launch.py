@@ -142,3 +142,13 @@ def test_start_는_서버가_댄_PID_를_기록한다(home, serve_fake, monkeypa
     monkeypatch.setattr(launch, "_spawn_server", lambda p: Proc())
     assert launch.start(port, open_browser=False) == 0
     assert launch.read_state() == {"pid": 777, "port": port}
+
+
+def test_서버를_띄우면_세션_줄을_미리_읽는다(monkeypatch):
+    """첫 화면이 claude 목록 · 대화 기록 요약을 기다리지 않게 (처음엔 몇 초 걸렸다)."""
+    from devdash import app as app_mod
+
+    warmed = []
+    monkeypatch.setattr(app_mod.SessionService, "rows", lambda self: warmed.append("rows") or [])
+    app_mod._warm_up(app_mod.SessionService())
+    assert warmed == ["rows"]

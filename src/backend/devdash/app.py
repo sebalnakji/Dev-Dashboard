@@ -7,12 +7,15 @@
 from __future__ import annotations
 
 import logging
+import os
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from devdash import records
 from devdash.api import guard
 from devdash.api.claude_routes import router as claude_router
 from devdash.api.project_routes import router as project_router
@@ -26,6 +29,17 @@ from devdash.store.memory import MemoryStore
 logger = logging.getLogger(__name__)
 
 
+def _warm_up(service: SessionService) -> None:
+    """서버를 띄운 직후 한 번: 세션 줄을 만들어 claude 목록 · 토큰 · 원래 저장소 판정을 기억해 둔다.
+    실패해도 화면이 처음 물을 때 다시 하므로 로그만 남긴다."""
+    try:
+        rows = service.rows()
+        for project in records.list_projects():
+            records.sessions(project["key"], rows)
+    except Exception:
+        logging.getLogger(__name__).exception("미리 읽기에 실패했다")
+
+
 def create_app(config_path: Path | None = None) -> FastAPI:
     config = load_config(config_path)
     store = MemoryStore()
@@ -34,6 +48,9 @@ def create_app(config_path: Path | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         scheduler.start()
+        # 첫 화면이 기다리지 않게 세션 목록 · 대화 기록 요약을 미리 읽어 둔다 (처음엔 몇 초 걸린다)
+        if not os.environ.get("DEVDASH_NO_WARMUP"):  # 시험은 끈다 (실제 claude 를 부르지 않게)
+            threading.Thread(target=_warm_up, args=(app.state.claude,), daemon=True).start()
         try:
             yield
         finally:

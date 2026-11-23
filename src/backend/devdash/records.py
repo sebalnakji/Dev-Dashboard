@@ -298,18 +298,29 @@ def drop_members(key: str, data: dict) -> None:
             registry.set_project(data, sid, None)
 
 
-class _MainPaths:
-    """한 요청 안에서 폴더별 원래 저장소를 한 번만 찾는다 (폴더마다 git 이 뜬다)."""
+MAIN_PATH_SECONDS = 300
+"""폴더 → 원래 저장소 판정을 기억하는 시간. 폴더마다 git 이 떠서(하나에 30~40ms) 세션이 많으면
+프로젝트 탭 [세션]이 그것만으로 0.5초 걸렸다. 저장소 구조는 거의 바뀌지 않는다."""
 
-    def __init__(self) -> None:
-        self._seen: dict[str, str | None] = {}
+_main_paths: dict[str, tuple[float, str | None]] = {}
+_main_paths_lock = threading.Lock()
+
+
+class _MainPaths:
+    """폴더별 원래 저장소를 찾는다. 찾은 것은 MAIN_PATH_SECONDS 동안 요청을 넘어 기억한다."""
 
     def __call__(self, folder: str) -> str | None:
         """폴더의 원래 저장소 (원래 표기). 폴더가 없으면 None."""
-        if folder not in self._seen:
-            ok = bool(folder) and os.path.isdir(folder)
-            self._seen[folder] = store.main_path(folder) if ok else None
-        return self._seen[folder]
+        now = time.time()
+        with _main_paths_lock:
+            hit = _main_paths.get(folder)
+        if hit and now - hit[0] <= MAIN_PATH_SECONDS:
+            return hit[1]
+        ok = bool(folder) and os.path.isdir(folder)
+        found = store.main_path(folder) if ok else None
+        with _main_paths_lock:
+            _main_paths[folder] = (now, found)
+        return found
 
 
 def candidates(rows: list[dict]) -> list[dict]:
@@ -946,7 +957,7 @@ def snapshot_diff(key: str, before: str | None, after: str | None, full: bool = 
     if after == UNKNOWN:
         return {**found, "binary": False, "tooLarge": False, "hunks": []}
     project_dir = store.project_dir(key)
-    empty = snap.put(project_dir, b"")
+    empty = snap.empty(project_dir)
     a = empty if before in (None, UNKNOWN) else before
     b = after or empty
     out = snap._git(
@@ -960,28 +971,75 @@ def snapshot_diff(key: str, before: str | None, after: str | None, full: bool = 
 _numstat_cache: dict[tuple[str, str | None, str | None], tuple[int | None, int | None]] = {}
 
 
+def _line_counts(old: bytes, new: bytes) -> tuple[int | None, int | None]:
+    """(더한 줄, 지운 줄) — git diff --numstat 과 같은 셈. 글이 아니면(NUL 이 있음) (None, None)."""
+    if b"\0" in old or b"\0" in new:
+        return None, None
+    # 줄 끝까지 견준다 — git 은 끝 줄바꿈이 생기거나 없어진 줄도 바뀐 줄로 센다
+    a = old.decode("utf-8", "replace").splitlines(keepends=True)
+    b = new.decode("utf-8", "replace").splitlines(keepends=True)
+    added = deleted = 0
+    for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+        if op in ("replace", "delete"):
+            deleted += i2 - i1
+        if op in ("replace", "insert"):
+            added += j2 - j1
+    return added, deleted
+
+
+def _numstats(
+    key: str, pairs: list[tuple[str | None, str | None]]
+) -> dict[tuple[str | None, str | None], tuple[int | None, int | None]]:
+    """여러 쌍의 줄 수를 git 한 번으로: 내용을 모아 읽고(cat-file --batch) 파이썬으로 센다.
+    전에는 쌍마다 git 이 두 번(빈 내용 넣기 · diff) 떠서, 파일이 많은 대화를 처음 열 때
+    1초가 넘었다."""
+    out: dict[tuple[str | None, str | None], tuple[int | None, int | None]] = {}
+    todo = []
+    for pair in dict.fromkeys(pairs):
+        hit = _numstat_cache.get((key, *pair))
+        if hit is not None:
+            out[pair] = hit
+        elif pair[1] == UNKNOWN:
+            out[pair] = (None, None)  # 이후 내용을 모르면 셀 수 없다
+        else:
+            todo.append(pair)
+    if not todo:
+        return out
+    blobs = [b for pair in todo for b in pair if b and b != UNKNOWN]
+    contents = snap.get_many(store.project_dir(key), blobs)
+    for before, after in todo:
+        old = b"" if before in (None, UNKNOWN) else contents.get(before)
+        new = b"" if after is None else contents.get(after)
+        value = (None, None) if old is None or new is None else _line_counts(old, new)
+        _numstat_cache[(key, before, after)] = value
+        out[(before, after)] = value
+    return out
+
+
 def _numstat(key: str, before: str | None, after: str | None) -> tuple[int | None, int | None]:
     """두 스냅샷 사이 (더한 줄, 지운 줄). 글이 아니면 (None, None). 같은 쌍은 기억해 둔다 —
     대화 화면이 몇 초마다 다시 묻는다."""
-    hit = _numstat_cache.get((key, before, after))
-    if hit is not None:
-        return hit
-    if after == UNKNOWN:
-        return None, None  # 이후 내용을 모르면 셀 수 없다
-    project_dir = store.project_dir(key)
-    empty = snap.put(project_dir, b"")
-    a = empty if before in (None, "unknown") else before
-    out = snap._git(project_dir, "diff", "--numstat", a, after or empty).decode("utf-8", "replace")
-    parts = out.split("\t")
-    value = (
-        (int(parts[0]), int(parts[1]))
-        if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit()
-        else (0, 0)
-        if not out.strip()
-        else (None, None)
-    )
-    _numstat_cache[(key, before, after)] = value
-    return value
+    return _numstats(key, [(before, after)])[(before, after)]
+
+
+def _counts_for(
+    key: str, pairs: dict[str, tuple[str | None, str | None] | None]
+) -> dict[str, tuple[int | None, int | None]]:
+    """파일별 줄 수 — 모아서 한 번에 세고, 그게 실패하면 파일 하나씩. 파일 하나가 깨져도
+    (스냅샷 저장소 · git 문제) 대화 전체가 안 보이면 안 된다."""
+    wanted = {path: pair for path, pair in pairs.items() if pair is not None}
+    try:
+        found = _numstats(key, list(wanted.values()))
+        return {path: found[pair] for path, pair in wanted.items()}
+    except Exception:
+        logger.exception("작업 상자 줄 수를 한 번에 세지 못했다 — 파일 하나씩: %s", key)
+    out = {}
+    for path, pair in wanted.items():
+        try:
+            out[path] = _numstat(key, *pair)
+        except Exception:
+            logger.exception("작업 상자 줄 수를 세지 못했다: %s %s", key, path)
+    return out
 
 
 def chat_work(key: str, messages: list[dict]) -> None:
@@ -1010,18 +1068,18 @@ def chat_work(key: str, messages: list[dict]) -> None:
         if not mine:
             continue
         files = []
-        for path in dict.fromkeys(r["path"] for r in mine):
-            rows = [r for r in mine if r["path"] == path]
-            pair = snap.pair(
+        paths = list(dict.fromkeys(r["path"] for r in mine))
+        pairs = {
+            path: snap.pair(
                 snaps, lambda e, p=path, q=prompt: e.get("prompt") == q and e.get("path") == p
             )
-            added = deleted = None
-            if pair is not None:
-                try:
-                    added, deleted = _numstat(key, *pair)
-                except Exception:
-                    # 파일 하나가 깨져도(스냅샷 저장소 · git 문제) 대화 전체가 안 보이면 안 된다
-                    logger.exception("작업 상자 줄 수를 세지 못했다: %s %s", key, path)
+            for path in paths
+        }
+        counts = _counts_for(key, pairs)
+        for path in paths:
+            rows = [r for r in mine if r["path"] == path]
+            pair = pairs[path]
+            added, deleted = counts.get(path, (None, None))
             files.append(
                 {
                     "path": path,

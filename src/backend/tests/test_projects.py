@@ -1068,14 +1068,17 @@ def test_대화_작업_상자는_파일_하나가_실패해도_나머지를_보�
     for path in ("a.txt", "b.txt"):
         store.append_activity(key, {"op": "modify", "path": path, "task": None, "prompt": "p1"})
         snapshots(key, path, None, ("before", "1\n"), ("after", path + "\n"), prompt="p1")
-    real = records._numstat
     broken = snap.put(store.project_dir(key), b"a.txt\n")  # a.txt 의 이후 내용 번호
 
     def flaky(k, before, after):
         if after == broken:
             raise RuntimeError("git 실패")
-        return real(k, before, after)
+        return records._line_counts(b"1\n", b"b.txt\n")
 
+    def batch_fails(k, pairs):
+        raise RuntimeError("git 실패")  # 모아 세기가 실패하면 파일 하나씩
+
+    monkeypatch.setattr(records, "_numstats", batch_fails)
     monkeypatch.setattr(records, "_numstat", flaky)
     records._numstat_cache.clear()
     messages = chat_messages("p1")
@@ -1083,3 +1086,75 @@ def test_대화_작업_상자는_파일_하나가_실패해도_나머지를_보�
     a, b = messages[1]["work"]["files"]
     assert a["added"] is None and a["diff"] is True  # 실패한 파일은 줄 수만 빈다
     assert b["added"] == 1
+
+
+# --- 성능: 줄 수를 git 한 번으로 · 원래 저장소 판정 기억 ---
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        (b"a\nb\nc\n", b"a\nB\nc\nd\n"),
+        (b"", b"new\nfile\n"),
+        (b"gone\n", b""),
+        (b"same\n", b"same\n"),
+        (b"a\r\nb\r\n", b"a\r\nc\r\n"),
+        (b"no newline", b"no newline\nmore"),
+        (b"\x00bin", b"\x00bin2"),
+    ],
+)
+def test_줄_수는_git_numstat_과_같다(client, env, old, new):
+    key = add(client, env)
+    project = store.project_dir(key)
+    a, b = snap.put(project, old), snap.put(project, new)
+    out = snap._git(project, "diff", "--numstat", a, b).decode().split("\t")
+    want = (None, None) if out[0] == "-" else (int(out[0]), int(out[1])) if len(out) > 1 else (0, 0)
+    records._numstat_cache.clear()
+    assert records._numstat(key, a, b) == want
+
+
+def test_여러_내용을_git_한_번으로_읽고_빈_내용은_git_없이(client, env, monkeypatch):
+    key = add(client, env)
+    project = store.project_dir(key)
+    a, b = snap.put(project, b"one"), snap.put(project, b"two\nlines\n")
+    calls = []
+    real = snap._git
+    monkeypatch.setattr(
+        snap, "_git", lambda *args, **kw: calls.append(args[1]) or real(*args, **kw)
+    )
+    found = snap.get_many(project, [a, b, a, "0" * 40])
+    assert found == {a: b"one", b: b"two\nlines\n", "0" * 40: None} and calls == ["cat-file"]
+    assert snap.empty(project) == snap.EMPTY_BLOB  # 처음 한 번은 넣는다
+    calls.clear()
+    assert snap.empty(project) == snap.EMPTY_BLOB and calls == []  # 다음부터는 git 없이
+
+
+def test_대화_작업_상자의_줄_수는_파일이_많아도_git_한_번(client, env, monkeypatch):
+    key = add(client, env)
+    for i in range(6):
+        path = f"f{i}.txt"
+        store.append_activity(key, {"op": "modify", "path": path, "task": None, "prompt": "p1"})
+        snapshots(key, path, None, ("before", "x\n"), ("after", f"x\n{i}\n"), prompt="p1")
+    records._numstat_cache.clear()
+    calls = []
+    real = snap._git
+    monkeypatch.setattr(
+        snap, "_git", lambda *args, **kw: calls.append(args[1]) or real(*args, **kw)
+    )
+    messages = chat_messages("p1")
+    records.chat_work(key, messages)
+    assert [f["added"] for f in messages[1]["work"]["files"]] == [1] * 6
+    assert calls == ["cat-file"]
+
+
+def test_원래_저장소_판정은_요청을_넘어_기억한다(env, monkeypatch):
+    calls = []
+    real = store.main_path
+    monkeypatch.setattr(store, "main_path", lambda f: calls.append(f) or real(f))
+    records._main_paths.clear()
+    folder = str(env["repo"])
+    assert records._MainPaths()(folder) == records._MainPaths()(folder)
+    assert len(calls) == 1
+    monkeypatch.setattr(records, "MAIN_PATH_SECONDS", -1)  # 기억 시간이 지나면 다시 찾는다
+    records._MainPaths()(folder)
+    assert len(calls) == 2
