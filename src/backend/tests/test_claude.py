@@ -820,3 +820,16 @@ def test_최근_세대_삭제가_실패하면_옛_세대는_건드리지_않는�
     chain.delete(chain.entry(ID_B))
     run_background(chain)
     assert removed == [ID_B]
+
+
+def test_켜진_옛_세대는_숨기지_않고_삭제할_때도_따로_둔다(chain, monkeypatch):
+    """앱 사이드바에서 옛 세대를 깨우면 다시 켜진다 — 숨기면 돌고 있는 세션을 보지도 끄지도 못한다."""
+    chain.live.append(bg(ID_A, FIRST_A, "head", chain.cwd, pid=9, state="done"))
+    rows = {r["id"]: r for r in chain.rows()}
+    assert set(rows) == {ID_A, ID_B}  # 꺼진 C 만 숨는다
+    assert rows[ID_B]["olderGenerations"] == [ID_C]
+    removed: list[str] = []
+    monkeypatch.setattr(agents, "remove", lambda sid: removed.append(sid) or None)
+    chain.delete(chain.entry(ID_B))
+    run_background(chain)
+    assert removed == [ID_B, ID_C] and ("kill", 9) not in chain.calls

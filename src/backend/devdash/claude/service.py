@@ -97,6 +97,18 @@ def generations(sessions: dict[str, dict]) -> dict[str, list[str]]:
     return out
 
 
+def hidden_older(sessions: dict[str, dict]) -> dict[str, list[str]]:
+    """화면에서 숨길 옛 세대: generations 중 꺼진(pid 없는) 줄만. 켜진 옛 세대는 보인다 —
+    앱 사이드바에서 깨우면 다시 켜질 수 있는데, 숨기면 돌고 있는 세션을 보지도 끄지도 못한다.
+    [삭제]가 함께 지우는 것도 이 줄들뿐이다 (보이는 줄은 따로 지운다)."""
+    out = {}
+    for head, olds in generations(sessions).items():
+        off = [o for o in olds if not sessions[o].get("pid")]
+        if off:
+            out[head] = off
+    return out
+
+
 def has_name(row: dict) -> bool:
     """Claude 쪽 이름이 있는가. 켜진 세션은 이름이 없으면 목록 번호를 이름 자리에 넣어 준다."""
     return bool(row.get("name")) and row.get("name") != row.get("id")
@@ -245,8 +257,8 @@ class SessionService:
         """백그라운드 세션 줄 — 그룹 순서, 그룹 안 순서, 이름 순."""
         data = registry.load(self.path)
         sessions, _ = self.collect()
-        # 같은 세션의 옛 세대는 숨기고 최근 세대 줄만 (그룹 · 순서도 최근 세대 줄의 것)
-        older = generations(sessions)
+        # 같은 세션의 꺼진 옛 세대는 숨기고 최근 세대 줄만 (그룹 · 순서도 최근 세대 줄의 것)
+        older = hidden_older(sessions)
         hidden = {sid for olds in older.values() for sid in olds}
         rows = []
         for sid, r in sessions.items():
@@ -439,7 +451,7 @@ class SessionService:
         self._ops[row["id"]] = ("delete", time.time())
         self._failures.pop(row["id"], None)
         # 숨겨 둔 옛 세대 줄도 함께 지운다 (최근 세대를 지운 뒤)
-        olds = generations(self.collect()[0]).get(row["id"], [])
+        olds = hidden_older(self.collect()[0]).get(row["id"], [])
         self._background(self._delete, {**row, "olderGenerations": olds})
         self._drop_cache()
         return None
