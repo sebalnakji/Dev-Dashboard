@@ -15,7 +15,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from devdash import records
+from devdash import codestate, records
 from devdash.api import guard
 from devdash.api.claude_routes import router as claude_router
 from devdash.api.project_routes import router as project_router
@@ -57,6 +57,8 @@ def create_app(config_path: Path | None = None) -> FastAPI:
             await scheduler.stop()
 
     app = FastAPI(title="devdash", lifespan=lifespan)
+    # 띄워질 때의 코드 상태 — /api/health 가 알리고, start 가 지금 코드와 견준다
+    app.state.code = codestate.current()
     app.state.config = config
     app.state.store = store
     app.state.scheduler = scheduler

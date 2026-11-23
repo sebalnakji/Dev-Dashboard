@@ -238,6 +238,10 @@ def build_frontend(clean_install: bool) -> bool:
         if subprocess.run(args, cwd=FRONTEND).returncode != 0:
             print(f"화면 준비에 실패했습니다: {' '.join(args[1:])}")
             return False
+    # 어느 코드로 빌드했는지 적어 둔다 — start 가 화면 코드가 바뀌었을 때만 다시 빌드하게
+    from devdash import codestate
+
+    codestate.write_build_stamp()
     return True
 
 

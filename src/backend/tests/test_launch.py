@@ -62,7 +62,13 @@ def home(tmp_path, monkeypatch):
 
     monkeypatch.setattr(launch, "_spawn_server", no_spawn)
     monkeypatch.setattr(launch.webbrowser, "open", lambda url: None)
+    # 이 폴더의 실제 git 상태 대신 — 시험마다 정한다
+    monkeypatch.setattr(launch.codestate, "current", lambda: dict(CODE))
+    monkeypatch.setattr(launch.codestate, "frontend_build_needed", lambda now=None: (False, False))
     return {"dir": tmp_path, "killed": killed}
+
+
+CODE = {"commit": "c1", "clean": True}
 
 
 def _state(home, pid, port):
@@ -77,7 +83,10 @@ def test_health_는_devdash_와_PID_를_댄다():
     from devdash.app import create_app
 
     with TestClient(create_app(), base_url="http://127.0.0.1") as client:
-        assert client.get("/api/health").json() == {"app": "devdash", "pid": os.getpid()}
+        health = client.get("/api/health").json()
+        assert health["app"] == "devdash" and health["pid"] == os.getpid()
+        # 띄워질 때의 코드 상태 — start 가 지금 코드와 견준다
+        assert set(health["code"]) == {"commit", "clean"}
 
 
 def test_포트를_다른_프로그램이_쓰면_끄지_않고_멈춘다(home, serve_fake, capsys):
@@ -88,7 +97,7 @@ def test_포트를_다른_프로그램이_쓰면_끄지_않고_멈춘다(home, s
 
 
 def test_이미_띄운_devdash_가_있으면_새로_띄우지_않는다(home, serve_fake, capsys):
-    port = serve_fake({"app": "devdash", "pid": 4321})
+    port = serve_fake({"app": "devdash", "pid": 4321, "code": CODE})
     _state(home, 4321, port)
     assert launch.start(port) == 0
     assert "이미 실행 중" in capsys.readouterr().out
@@ -152,3 +161,72 @@ def test_서버를_띄우면_세션_줄을_미리_읽는다(monkeypatch):
     monkeypatch.setattr(app_mod.SessionService, "rows", lambda self: warmed.append("rows") or [])
     app_mod._warm_up(app_mod.SessionService())
     assert warmed == ["rows"]
+
+
+# --- 코드를 합친 뒤 아이콘(start)만 눌러도 반영되게 ---
+
+
+@pytest.fixture
+def restartable(home, serve_fake, monkeypatch):
+    """끄면 포트가 비고(404), 다시 띄우면 새 PID 로 답하는 가짜 devdash."""
+    holder = {}
+
+    def start(code):
+        health = {"app": "devdash", "pid": 4321}
+        if code is not None:
+            health["code"] = code  # None: 이 기능 전의 서버 — 코드를 대지 않는다
+        port = serve_fake(health)
+        # 같은 dict 를 쥔 가짜 처리기 (다른 시험이 만든 것과 헷갈리지 않게 dict 자체로 찾는다)
+        holder["handler"] = next(h for h in _Fake.__subclasses__() if h.health is health)
+        _state(home, 4321, port)
+        return port
+
+    def kill(pid, sig):
+        home["killed"].append(pid)
+        holder["handler"].health = None  # 꺼짐
+
+    spawned = []
+
+    def spawn(port):
+        spawned.append(port)
+        holder["handler"].health = {"app": "devdash", "pid": 5555, "code": CODE}
+        return type("P", (), {"poll": lambda self: None})()
+
+    monkeypatch.setattr(launch.os, "kill", kill)
+    monkeypatch.setattr(launch, "_spawn_server", spawn)
+    return {"start": start, "spawned": spawned}
+
+
+@pytest.mark.parametrize(
+    "running",
+    [
+        {"commit": "c0", "clean": True},  # 합친 뒤 — 커밋이 다르다
+        {"commit": "c1", "clean": False},  # 고친 채로 떠 있었다 — 같은지 알 수 없다
+        None,  # 이 기능 전의 서버 — 코드를 대지 않는다
+    ],
+)
+def test_떠_있는_서버가_지금_코드와_다르면_끄고_새로_띄운다(home, restartable, capsys, running):
+    port = restartable["start"](running)
+    assert launch.start(port) == 0
+    out = capsys.readouterr().out
+    assert "새 코드로 다시 띄웁니다" in out
+    assert home["killed"] == [4321] and restartable["spawned"] == [port]
+    assert json.loads((home["dir"] / "server.json").read_text())["pid"] == 5555
+
+
+def test_화면_빌드가_실패하면_떠_있던_서버를_그대로_둔다(home, restartable, capsys, monkeypatch):
+    port = restartable["start"]({"commit": "c0", "clean": True})
+    monkeypatch.setattr(launch.codestate, "frontend_build_needed", lambda now=None: (True, False))
+    monkeypatch.setattr(launch, "_build", lambda deps: False)
+    assert launch.start(port) == 1
+    assert home["killed"] == [] and restartable["spawned"] == []
+    assert "그대로 둡니다" in capsys.readouterr().out
+
+
+def test_같은_코드라도_화면_코드가_바뀌었으면_빌드하고_다시_띄운다(home, restartable, monkeypatch):
+    port = restartable["start"](CODE)
+    built = []
+    monkeypatch.setattr(launch.codestate, "frontend_build_needed", lambda now=None: (True, True))
+    monkeypatch.setattr(launch, "_build", lambda deps: built.append(deps) or True)
+    assert launch.start(port) == 0
+    assert built == [True] and restartable["spawned"] == [port]

@@ -47,10 +47,12 @@ def _server_config(config, server_id: str):
 
 
 @router.get("/health")
-async def health() -> dict:
-    """이 포트에서 도는 것이 devdash 인지, 어느 프로세스인지 밝힌다.
-    stop 이 남의 프로그램이나 다시 쓰인 PID 를 끄지 않게 확인하는 데 쓴다 (devdash.launch)."""
-    return {"app": "devdash", "pid": os.getpid()}
+async def health(request: Request) -> dict:
+    """이 포트에서 도는 것이 devdash 인지, 어느 프로세스인지, 어느 코드로 떴는지 밝힌다.
+    stop 이 남의 프로그램이나 다시 쓰인 PID 를 끄지 않게, start 가 코드가 바뀐 서버를 다시 띄우게
+    확인하는 데 쓴다 (devdash.launch)."""
+    code = getattr(request.app.state, "code", None)
+    return {"app": "devdash", "pid": os.getpid(), "code": code}
 
 
 def build_summaries(config, scheduler, store, with_spark: bool) -> list[dict]:

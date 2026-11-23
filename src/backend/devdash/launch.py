@@ -30,6 +30,7 @@ import urllib.request
 import webbrowser
 from pathlib import Path
 
+from devdash import codestate
 from devdash.home import REPO, home, log_dir
 
 DEFAULT_PORT = 8770
@@ -45,16 +46,22 @@ def state_path() -> Path:
 # --- 확인 ----------------------------------------------------------------------
 
 
-def devdash_pid(port: int) -> int | None:
-    """이 포트에서 devdash 가 답하면 그 서버의 PID, 아니면 None."""
+def devdash_health(port: int) -> dict | None:
+    """이 포트에서 devdash 가 답하면 그 /api/health (pid · code), 아니면 None."""
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=2) as res:
             data = json.loads(res.read().decode("utf-8"))
     except (OSError, ValueError, urllib.error.URLError):
         return None
     if isinstance(data, dict) and data.get("app") == "devdash" and isinstance(data.get("pid"), int):
-        return data["pid"]
+        return data
     return None
+
+
+def devdash_pid(port: int) -> int | None:
+    """이 포트에서 devdash 가 답하면 그 서버의 PID, 아니면 None."""
+    health = devdash_health(port)
+    return health["pid"] if health else None
 
 
 def port_in_use(port: int) -> bool:
@@ -92,15 +99,27 @@ def _clear_state() -> None:
 
 
 def start(port: int = DEFAULT_PORT, open_browser: bool = True) -> int:
-    url = f"http://127.0.0.1:{port}/"
+    now = codestate.current()
+    build, deps = codestate.frontend_build_needed(now)
     state = read_state()
     if state:
-        if devdash_pid(state["port"]) == state["pid"]:
+        health = devdash_health(state["port"])
+        if health and health["pid"] == state["pid"]:
             running = f"http://127.0.0.1:{state['port']}/"
-            print(f"이미 실행 중입니다: {running}")
-            if open_browser:
-                webbrowser.open(running)
-            return 0
+            if codestate.same(health.get("code"), now) and not build:
+                print(f"이미 실행 중입니다: {running}")
+                if open_browser:
+                    webbrowser.open(running)
+                return 0
+            # 코드를 합친 뒤 — 아이콘만 눌러도 반영되게 다시 띄운다. 화면 빌드는 끄기 전에
+            # (실패하면 떠 있던 서버를 그대로 둔다)
+            print("새 코드로 다시 띄웁니다.")
+            if build and not _build(deps):
+                print(f"떠 있던 대시보드는 그대로 둡니다: {running}")
+                return 1
+            if _stop_server(state["pid"], state["port"]) != 0:
+                return 1
+            return _spawn_and_wait(state["port"], open_browser)
         _clear_state()  # 지난번에 꺼진 뒤 남은 기록
 
     if port_in_use(port):
@@ -112,15 +131,28 @@ def start(port: int = DEFAULT_PORT, open_browser: bool = True) -> int:
         )
         return 1
 
-    if not (REPO / "src" / "frontend" / "dist" / "index.html").exists():
-        # 처음이거나 빌드본을 지운 뒤. node 가 필요하다
-        from devdash.install import build_frontend
+    if build and not _build(deps):
+        return 1
+    return _spawn_and_wait(port, open_browser)
 
-        print("화면 빌드본이 없어 빌드합니다.")
-        if not build_frontend(clean_install=False):
-            print("화면을 빌드하지 못했습니다. setup 을 다시 실행하세요.")
-            return 1
 
+def _build(deps: bool) -> bool:
+    """화면을 빌드한다 (빌드본이 없거나 화면 코드가 바뀜). node 가 필요하다."""
+    from devdash.install import build_frontend
+
+    print(
+        "화면 코드가 바뀌어 빌드합니다."
+        if (REPO / "src" / "frontend" / "dist").exists()
+        else "화면 빌드본이 없어 빌드합니다."
+    )
+    if build_frontend(clean_install=deps):
+        return True
+    print("화면을 빌드하지 못했습니다. setup 을 다시 실행하세요.")
+    return False
+
+
+def _spawn_and_wait(port: int, open_browser: bool) -> int:
+    url = f"http://127.0.0.1:{port}/"
     proc = _spawn_server(port)
     deadline = time.monotonic() + START_WAIT
     while time.monotonic() < deadline:
@@ -172,7 +204,12 @@ def stop() -> int:
         _clear_state()
         print("대시보드는 이미 꺼져 있습니다.")
         return 0
+    return _stop_server(pid, port)
 
+
+def _stop_server(pid: int, port: int) -> int:
+    """그 포트의 devdash 가 이 PID 인 것을 확인한 뒤 부른다. 서버만 끈다 — Claude 세션은 Claude 의
+    관리자가 띄운 프로세스라 대시보드를 꺼도 그대로 돈다."""
     try:
         os.kill(pid, signal.SIGTERM)  # 윈도우는 TerminateProcess
     except OSError as exc:
