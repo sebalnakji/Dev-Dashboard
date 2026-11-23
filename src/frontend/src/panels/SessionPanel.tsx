@@ -540,7 +540,7 @@ function CompatNotice({ status }: { status: CompatStatus | null }) {
         </p>
       ) : (
         <p>
-          터미널에서 <Code>devdash check-claude</Code> 실행 (몇 분 걸림)
+          대시보드 폴더의 <Code>check-claude</Code> 실행 (.bat · .sh, 몇 분 걸림)
         </p>
       )}
     </div>
