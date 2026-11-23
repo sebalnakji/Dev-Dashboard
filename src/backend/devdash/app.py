@@ -33,6 +33,9 @@ def _warm_up(service: SessionService) -> None:
     """서버를 띄운 직후 한 번: 세션 줄을 만들어 claude 목록 · 토큰 · 원래 저장소 판정을 기억해 둔다.
     실패해도 화면이 처음 물을 때 다시 하므로 로그만 남긴다."""
     try:
+        from devdash.api import claude_routes
+
+        claude_routes._apps.apps()  # 앱별 메모리 세기를 시작해 둔다 (별도 프로세스)
         rows = service.rows()
         for project in records.list_projects():
             records.sessions(project["key"], rows)

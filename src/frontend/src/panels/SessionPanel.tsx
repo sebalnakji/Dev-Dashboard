@@ -15,6 +15,7 @@ import { Column, ColumnTitle } from '../components/Column'
 import { ContextMeter } from '../components/ContextMeter'
 import { BUTTON, OFFLINE } from '../components/styles'
 import { useAbilities } from '../hooks/useAbilities'
+import { useTabActive } from '../hooks/useTabActive'
 import { useNow } from '../hooks/useNow'
 import type {
   ActionResult,
@@ -112,7 +113,10 @@ export function SessionPanel() {
     }
   }, [showNotice])
 
+  const active = useTabActive()
+
   useEffect(() => {
+    if (!active) return // 숨겨진 탭
     const check = () => {
       fetchCompat()
         .then(setCompat)
@@ -124,9 +128,10 @@ export function SessionPanel() {
       window.clearTimeout(first)
       window.clearInterval(timer)
     }
-  }, [])
+  }, [active])
 
   useEffect(() => {
+    if (!active) return // 숨겨진 탭 — 다시 보이면 곧바로 한 번 읽는다
     // 첫 읽기도 타이머로 미룬다 — 효과 안에서 곧바로 상태를 바꾸지 않게 (react 검사 규칙)
     const first = window.setTimeout(refresh, 0)
     const timer = window.setInterval(refresh, REFRESH_MS)
@@ -134,7 +139,7 @@ export function SessionPanel() {
       window.clearTimeout(first)
       window.clearInterval(timer)
     }
-  }, [refresh])
+  }, [refresh, active])
 
   /** 요청 하나를 보내고 결과를 알린 뒤 다시 읽는다. 확인 요청이면 물어보고 force 로 다시 보낸다 */
   async function run(send: (force: boolean) => Promise<ActionResult>) {

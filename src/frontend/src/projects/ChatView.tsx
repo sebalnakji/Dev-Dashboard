@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
+import { useTabActive } from '../hooks/useTabActive'
 import { fetchChat, fetchTurnDiff } from '../api/client'
 import { BUTTON, WARNING, agoIso, reasonOf } from '../components/styles'
 import { useNow } from '../hooks/useNow'
@@ -70,7 +71,9 @@ export function ChatView({
       .catch((e) => mine === seq.current && setError(reasonOf(e)))
   }, [sessionId, limit, projectKey])
 
+  const active = useTabActive()
   useEffect(() => {
+    if (!active) return // 숨겨진 탭
     const tick = () => !document.hidden && load()
     const first = window.setTimeout(load, 0)
     const timer = window.setInterval(tick, REFRESH_MS)
@@ -78,7 +81,7 @@ export function ChatView({
       window.clearTimeout(first)
       window.clearInterval(timer)
     }
-  }, [load])
+  }, [load, active])
 
   // 그린 뒤에 스크롤을 맞춘다 (그리기 전에 맞추면 높이가 달라 어긋난다)
   useLayoutEffect(() => {

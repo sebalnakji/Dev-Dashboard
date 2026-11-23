@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { useTabActive } from '../hooks/useTabActive'
 import { fetchGit, fetchProjectFiles, fetchProjectSessions, fetchTask, fetchTasks } from '../api/client'
 import { reasonOf } from '../components/styles'
 import type { FilesResponse, GitHistory, ProjectSession, TaskDetail, TaskRow } from '../types'
@@ -52,7 +53,9 @@ function useSlot<T>() {
 
 /** 몇 초마다 부른다. 브라우저 탭이 가려져 있으면 건너뛴다 (보는 사람이 없다). */
 function usePolling(load: () => void) {
+  const active = useTabActive()
   useEffect(() => {
+    if (!active) return // 숨겨진 탭 — 다시 보이면 곧바로 한 번 읽는다
     const tick = () => {
       if (!document.hidden) load()
     }
@@ -64,7 +67,7 @@ function usePolling(load: () => void) {
       window.clearInterval(timer)
       document.removeEventListener('visibilitychange', tick)
     }
-  }, [load])
+  }, [load, active])
 }
 
 /**

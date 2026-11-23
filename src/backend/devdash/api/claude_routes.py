@@ -9,8 +9,6 @@ FastAPI 가 스레드에서 돌려 이벤트 루프(서버 수집 · SSE)를 막
 from __future__ import annotations
 
 import os
-import threading
-import time
 from collections.abc import Callable
 
 from fastapi import APIRouter, Request
@@ -20,13 +18,12 @@ from pydantic import BaseModel
 from devdash import compat, records
 from devdash.claude import agents, chat, registry
 from devdash.claude.service import Result, SessionService
-from devdash.local import ABILITIES, app_memory, memory_status
+from devdash.local import ABILITIES, memory_status
+from devdash.local.memsnap import MemoryWatcher
 
 router = APIRouter(prefix="/api")
 
 TOP_APPS = 10
-MEMORY_CACHE_SECONDS = 5
-"""tasklist 를 읽는 데 ~0.5초 걸려, 이 안의 요청은 같은 결과를 돌려준다."""
 
 
 def _service(request: Request) -> SessionService:
@@ -202,9 +199,6 @@ def place_session(request: Request, session_id: str, body: PlaceBody) -> JSONRes
 
 # --- PC 메모리 ---
 
-_memory: tuple[float, dict] = (0.0, {})
-_memory_lock = threading.Lock()
-
 
 @router.get("/pc/abilities")
 def pc_abilities() -> dict:
@@ -212,20 +206,13 @@ def pc_abilities() -> dict:
     return ABILITIES
 
 
+_apps = MemoryWatcher(TOP_APPS)
+
+
 @router.get("/pc/memory")
 def pc_memory() -> dict:
-    """남은 메모리와 많이 쓰는 앱. 무엇을 끌지 고를 때 PC 전체 상황을 같이 보려고 둔다."""
-    global _memory
-    with _memory_lock:
-        if time.time() - _memory[0] > MEMORY_CACHE_SECONDS:
-            total, avail = memory_status()
-            ranked = sorted(app_memory().items(), key=lambda kv: kv[1], reverse=True)
-            _memory = (
-                time.time(),
-                {
-                    "total": total,
-                    "avail": avail,
-                    "apps": [{"name": n, "bytes": b} for n, b in ranked[:TOP_APPS]],
-                },
-            )
-        return _memory[1]
+    """남은 메모리와 많이 쓰는 앱. 무엇을 끌지 고를 때 PC 전체 상황을 같이 보려고 둔다.
+    앱별 메모리는 별도 프로세스가 뒤에서 10초마다 센 마지막 값이다 (memsnap) — 요청이 기다리지
+    않고, 세는 동안 서버의 다른 요청도 밀리지 않는다. 처음 몇 초는 앱 목록이 빈다."""
+    total, avail = memory_status()
+    return {"total": total, "avail": avail, "apps": _apps.apps() or []}

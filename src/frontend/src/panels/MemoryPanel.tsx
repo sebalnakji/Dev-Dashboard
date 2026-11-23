@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react'
 
 import { fetchPcMemory } from '../api/client'
 import { Column, ColumnTitle } from '../components/Column'
+import { useTabActive } from '../hooks/useTabActive'
 import type { PcMemory } from '../types'
 
-/** 앱 목록(tasklist)을 읽는 데 ~0.5초 걸려, 세션 칸(3초)보다 느리게 갱신한다. */
-const REFRESH_MS = 5000
+/** 앱별 메모리는 서버가 뒤에서 10초마다 센다 (별도 프로세스) — 그 간격에 맞춘다. */
+const REFRESH_MS = 10000
 
 const GiB = 2 ** 30
 const gb = (b: number) => `${(b / GiB).toFixed(1)}GB`
@@ -17,8 +18,10 @@ const size = (b: number) => (b >= GiB ? gb(b) : `${Math.round(b / 2 ** 20)}MB`)
  */
 export function MemoryPanel() {
   const [memory, setMemory] = useState<PcMemory | null>(null)
+  const active = useTabActive()
 
   useEffect(() => {
+    if (!active) return // 숨겨진 탭 — 묻지 않는다 (서버도 1분 뒤 세기를 멈춘다)
     const load = () =>
       fetchPcMemory()
         .then(setMemory)
@@ -27,7 +30,7 @@ export function MemoryPanel() {
     load()
     const timer = setInterval(load, REFRESH_MS)
     return () => clearInterval(timer)
-  }, [])
+  }, [active])
 
   const usedPct = memory ? Math.round((1 - memory.avail / memory.total) * 100) : 0
 

@@ -203,12 +203,23 @@ function bytesText(n: number): string {
 }
 
 /** 스냅샷 용량 — 메뉴를 열 때 묻는다. 자동으로 지우지 않으므로 얼마나 쌓였는지 보이게 한다 */
+/** 스냅샷 용량을 1분 기억한다 — 메뉴를 열 때마다 서버가 폴더를 훑지 않게 (한 번에 0.2초쯤) */
+const sizeCache = new Map<string, { bytes: number; at: number }>()
+
 function SnapshotSize({ projectKey, prefix = '스냅샷' }: { projectKey: string; prefix?: string }) {
-  const [bytes, setBytes] = useState<number | null>(null)
+  const [bytes, setBytes] = useState<number | null>(() => {
+    const hit = sizeCache.get(projectKey)
+    return hit && Date.now() - hit.at < 60_000 ? hit.bytes : null
+  })
   useEffect(() => {
     let alive = true
+    const hit = sizeCache.get(projectKey)
+    if (hit && Date.now() - hit.at < 60_000) return
     fetchSnapshotSize(projectKey)
-      .then((r) => alive && setBytes(r.bytes))
+      .then((r) => {
+        sizeCache.set(projectKey, { bytes: r.bytes, at: Date.now() })
+        if (alive) setBytes(r.bytes)
+      })
       .catch(() => {})
     return () => {
       alive = false

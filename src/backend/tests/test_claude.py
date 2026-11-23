@@ -884,3 +884,43 @@ def test_연결_삭제로_비운_뒤에는_그_전에_출발한_뒤_받기를_�
     state["name"] = "지우기 전"  # 늦게 끝난 뒤 받기는 그 일 전의 목록을 들고 온다
     started[0]()
     assert s.collect()[0][ID_A]["name"] == "지운 뒤"  # 덮어쓰지 않는다
+
+
+# --- 메모리 칸: 앱별 메모리는 별도 프로세스가 뒤에서 센 마지막 값 ---
+
+
+def test_앱별_메모리는_뒤에서_센_마지막_값을_바로_주고_안_보면_멈춘다(monkeypatch):
+    from devdash.local import memsnap
+
+    monkeypatch.setattr(memsnap, "INTERVAL", 0.05)
+    monkeypatch.setattr(memsnap, "IDLE_STOP", 0.3)
+    runs = []
+
+    def runner(top):
+        runs.append(top)
+        return [{"name": "chrome", "bytes": len(runs)}]
+
+    w = memsnap.MemoryWatcher(3, runner=runner)
+    assert w.apps() is None  # 처음엔 아직 못 셌다 — 기다리지 않는다
+    deadline = time.time() + 5
+    while w.apps() is None and time.time() < deadline:
+        time.sleep(0.02)
+    assert w.apps()[0]["name"] == "chrome" and runs[0] == 3
+    time.sleep(0.6)  # 아무도 안 물으면 멈춘다
+    count = len(runs)
+    time.sleep(0.3)
+    assert len(runs) == count and not w._thread.is_alive()
+
+
+def test_앱별_메모리_프로세스는_JSON_으로_순위를_낸다():
+    import subprocess
+    import sys
+
+    out = subprocess.run(
+        [sys.executable, "-m", "devdash.local.memsnap", "3"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    apps = json.loads(out.stdout)
+    assert len(apps) == 3 and apps[0]["bytes"] >= apps[1]["bytes"] >= apps[2]["bytes"]

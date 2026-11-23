@@ -1,6 +1,9 @@
+import { useState } from 'react'
+
 import { goToGrid, goToProject, useHashRoute } from './hooks/useHashRoute'
 import { useMonitor } from './hooks/useMonitor'
 import { useNow } from './hooks/useNow'
+import { TabActive } from './hooks/useTabActive'
 import { ProjectsPage } from './pages/ProjectsPage'
 import { ServerDetail } from './pages/ServerDetail'
 import { MemoryPanel } from './panels/MemoryPanel'
@@ -18,6 +21,12 @@ export default function App() {
   const { servers, containers, loadError, live } = useMonitor()
   const route = useHashRoute()
   const now = useNow()
+  // 탭을 바꿀 때 지우지 않고 숨기기만 한다 — 돌아올 때마다 모든 칸이 '불러오는 중' 부터 다시
+  // 받았다. 프로젝트 탭은 처음 열 때 만들고, 그 뒤로는 마지막에 본 프로젝트를 들고 숨어 있는다
+  const [projectKey, setProjectKey] = useState<string | null | undefined>(
+    route.view === 'projects' ? route.key : undefined,
+  )
+  if (route.view === 'projects' && route.key !== projectKey) setProjectKey(route.key)
 
   if (route.view === 'server') {
     const selected = servers?.find((s) => s.id === route.id)
@@ -34,9 +43,10 @@ export default function App() {
     )
   }
 
+  const onProjects = route.view === 'projects'
   return (
     // 프로젝트 탭은 칸마다 따로 스크롤하므로 화면 높이에 맞추고, 모니터링은 내용만큼 늘어난다
-    <div className={`flex flex-col ${route.view === 'projects' ? 'h-full' : 'min-h-full'}`}>
+    <div className={`flex flex-col ${onProjects ? 'h-full' : 'min-h-full'}`}>
       <nav className="flex h-10 shrink-0 items-end gap-1 border-b border-divider px-4 min-[900px]:px-[30px]">
         <Tab active={route.view === 'monitor'} onClick={goToGrid}>
           모니터링
@@ -46,11 +56,16 @@ export default function App() {
         </Tab>
       </nav>
 
-      {route.view === 'projects' ? (
-        <ProjectsPage selectedKey={route.key} />
-      ) : (
-        // 삼등분. 칸 사이 세로줄은 화면 아래까지 닿게 하고, 좁은 창에서는 한 줄로 쌓는다
-        <div className="grid flex-1 grid-cols-1 min-[900px]:grid-cols-3">
+      {projectKey !== undefined && (
+        <TabActive.Provider value={onProjects}>
+          <div className={onProjects ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
+            <ProjectsPage selectedKey={projectKey} />
+          </div>
+        </TabActive.Provider>
+      )}
+      <TabActive.Provider value={!onProjects}>
+        {/* 삼등분. 칸 사이 세로줄은 화면 아래까지 닿게 하고, 좁은 창에서는 한 줄로 쌓는다 */}
+        <div className={onProjects ? 'hidden' : 'grid flex-1 grid-cols-1 min-[900px]:grid-cols-3'}>
           <ServerPanel servers={servers} loadError={loadError} live={live} now={now} />
           <div className="border-divider max-[899px]:border-t min-[900px]:border-l">
             <SessionPanel />
@@ -59,7 +74,7 @@ export default function App() {
             <MemoryPanel />
           </div>
         </div>
-      )}
+      </TabActive.Provider>
     </div>
   )
 }

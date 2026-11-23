@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { useTabActive } from '../hooks/useTabActive'
 import { fetchProjects } from '../api/client'
 import { BUTTON, OFFLINE, WARNING } from '../components/styles'
 import { goToProject, replaceProject } from '../hooks/useHashRoute'
@@ -37,21 +38,24 @@ export function ProjectsPage({ selectedKey }: { selectedKey: string | null }) {
       .catch(() => setOffline(true))
   }, [])
 
+  const active = useTabActive()
   useEffect(() => {
+    if (!active) return // 숨겨진 탭
     const first = window.setTimeout(loadProjects, 0)
     const timer = window.setInterval(() => !document.hidden && loadProjects(), LIST_REFRESH_MS)
     return () => {
       window.clearTimeout(first)
       window.clearInterval(timer)
     }
-  }, [loadProjects])
+  }, [loadProjects, active])
 
   // 주소에 프로젝트가 없거나 사라진 프로젝트면 첫째를 연다. 화면이 스스로 정한 이동이라
   // 이력을 덮어쓴다 — 쌓으면 뒤로가기를 눌러도 이 화면으로 되돌아왔다
   const current = projects?.find((p) => p.key === selectedKey) ?? null
   useEffect(() => {
-    if (projects && projects.length > 0 && !current) replaceProject(projects[0].key)
-  }, [projects, current])
+    // 숨어 있을 때는 주소를 바꾸지 않는다 — 바꾸면 보던 모니터링 탭에서 프로젝트 탭으로 넘어간다
+    if (active && projects && projects.length > 0 && !current) replaceProject(projects[0].key)
+  }, [projects, current, active])
   useEffect(() => {
     if (current) rememberProject(current.key)
   }, [current])
