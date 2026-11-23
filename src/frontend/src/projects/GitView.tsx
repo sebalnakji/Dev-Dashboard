@@ -464,7 +464,10 @@ export const DiffView = memo(function DiffView({
       {!shown && <p className="text-sm text-gray-500">불러오는 중…</p>}
       {diff?.binary && <p className="text-sm text-gray-500">글 파일이 아니라 비교할 수 없습니다.</p>}
       {diff?.tooLarge && <p className="text-sm text-gray-500">변경이 너무 커서(1MB 넘음) 그리지 않습니다.</p>}
-      {diff && !diff.binary && !diff.tooLarge && diff.hunks.length === 0 && (
+      {diff?.afterUnknown && (
+        <p className="text-sm text-gray-500">고친 뒤 내용을 뜨지 못해 비교할 수 없습니다 (셸 명령 직후 시간 초과 등).</p>
+      )}
+      {diff && !diff.binary && !diff.tooLarge && !diff.afterUnknown && diff.hunks.length === 0 && (
         <p className="text-sm text-gray-500">내용은 그대로이고 이름이나 권한만 바뀌었습니다.</p>
       )}
       {rows.length > 0 && (

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -190,16 +191,40 @@ def create(cwd: str, name: str) -> str | None:
     return explain(*_run(["--bg", "--name", name, "--remote-control"], cwd=cwd))
 
 
+def worktree_of(session_id: str) -> str | None:
+    """이 세션 기록이 주인인 작업용 복사본(worktree) 경로 (관리자 기록 jobs/<번호>/state.json 의
+    worktreePath). 폴더가 아직 있을 때만. claude rm 은 변경이 없으면 이 폴더까지 지운다."""
+    try:
+        state = json.loads((JOBS / session_id / "state.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    path = state.get("worktreePath") if isinstance(state, dict) else None
+    return path if isinstance(path, str) and path and Path(path).is_dir() else None
+
+
+_CLAIMED = re.compile(r"session \(([0-9a-f]{6,})\) claims this worktree", re.IGNORECASE)
+
+
+def remove_reason(code: int, output: str) -> str | None:
+    """claude rm 의 결과를 이유로. 지웠으면 None.
+    'kept <번호> — …' 는 지우지 않고 남겼다는 뜻이다 (종료 코드와 상관없이)."""
+    text = output.lower()
+    if code == 0 and "kept" not in text:
+        return None
+    if m := _CLAIMED.search(output):
+        other = m.group(1)[:8]
+        return f"다른 세션({other})이 이 작업용 복사본(worktree)을 쓰고 있어 지우지 않았습니다"
+    if "unpushed" in text:
+        return "올리지 않은 커밋이 있는 작업용 복사본(worktree)이 있어 지우지 않았습니다"
+    if "uncommitted" in text:
+        return "커밋하지 않은 변경이 있는 작업용 복사본(worktree)이 있어 지우지 않았습니다"
+    first = next((ln.strip() for ln in output.splitlines() if ln.strip()), "")
+    return first or f"claude rm 이 실패했습니다 (코드 {code})"
+
+
 def remove(session_id: str) -> str | None:
     """목록에서 지운다 (claude rm). 대화 기록 파일은 남는다. 실패하면 이유를 돌려준다."""
-    code, out = _run(["rm", session_id])
-    if code == 0:
-        return None
-    if "worktree" in out.lower():
-        # 커밋 안 된 변경이 있는 작업용 복사본을 가진 기록은 claude 가 지우지 않는다
-        return "커밋하지 않은 변경이 있는 작업용 복사본(worktree)이 있어 지우지 않았습니다"
-    first = next((ln.strip() for ln in out.splitlines() if ln.strip()), "")
-    return first or f"claude rm 이 실패했습니다 (코드 {code})"
+    return remove_reason(*_run(["rm", session_id]))
 
 
 def wait_for(match, limit: float = 25, interval: float = 2, *, live: bool = False) -> dict | None:

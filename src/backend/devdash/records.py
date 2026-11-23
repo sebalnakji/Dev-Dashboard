@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import logging
 import os
 import re
 import shutil
@@ -923,19 +924,34 @@ def commit_diff(
 # --- 작업 문서의 바뀐 파일: 이 작업이 그 파일을 어떻게 바꿨나 ---
 
 
+logger = logging.getLogger(__name__)
+
+UNKNOWN = "unknown"
+"""스냅샷의 내용 번호 자리에 오는 '알 수 없음' (훅이 내용을 뜨지 못했을 때).
+git 에 넘기면 안 된다."""
+
+
 def snapshot_diff(key: str, before: str | None, after: str | None, full: bool = False) -> dict:
-    """두 스냅샷(내용 번호)의 비교 (gitdiff.parse 모양). None 은 '없던 파일 · 지운 파일',
-    "unknown" 은 직전 내용을 모름 — 빈 내용과 비교해 지금 내용만 보이고
-    beforeUnknown 으로 알린다."""
+    """두 스냅샷(내용 번호)의 비교 (gitdiff.parse 모양). None 은 '없던 파일 · 지운 파일'.
+    "unknown" 은 그 쪽 내용을 모름:
+    - 이전을 모름: 빈 내용과 비교해 지금 내용만 보이고 beforeUnknown 으로 알린다
+    - 이후를 모름: 비교할 것이 없다 — git 을 부르지 않고 afterUnknown 으로 알린다"""
+    found = {
+        "snapshot": True,
+        "beforeUnknown": before == UNKNOWN,
+        "afterUnknown": after == UNKNOWN,
+        "commits": [],
+        "uncommitted": False,
+    }
+    if after == UNKNOWN:
+        return {**found, "binary": False, "tooLarge": False, "hunks": []}
     project_dir = store.project_dir(key)
     empty = snap.put(project_dir, b"")
-    unknown = before == "unknown"
-    a = empty if before in (None, "unknown") else before
+    a = empty if before in (None, UNKNOWN) else before
     b = after or empty
     out = snap._git(
         project_dir, "diff", "--no-color", "--no-ext-diff", f"-U{FULL_CONTEXT if full else 3}", a, b
     ).decode("utf-8", "replace")
-    found = {"snapshot": True, "beforeUnknown": unknown, "commits": [], "uncommitted": False}
     if len(out.encode("utf-8")) > DIFF_LIMIT:
         return {**found, "binary": False, "tooLarge": True, "hunks": []}
     return {**found, **gitdiff.parse(out), "tooLarge": False}
@@ -950,6 +966,8 @@ def _numstat(key: str, before: str | None, after: str | None) -> tuple[int | Non
     hit = _numstat_cache.get((key, before, after))
     if hit is not None:
         return hit
+    if after == UNKNOWN:
+        return None, None  # 이후 내용을 모르면 셀 수 없다
     project_dir = store.project_dir(key)
     empty = snap.put(project_dir, b"")
     a = empty if before in (None, "unknown") else before
@@ -999,7 +1017,11 @@ def chat_work(key: str, messages: list[dict]) -> None:
             )
             added = deleted = None
             if pair is not None:
-                added, deleted = _numstat(key, *pair)
+                try:
+                    added, deleted = _numstat(key, *pair)
+                except Exception:
+                    # 파일 하나가 깨져도(스냅샷 저장소 · git 문제) 대화 전체가 안 보이면 안 된다
+                    logger.exception("작업 상자 줄 수를 세지 못했다: %s %s", key, path)
             files.append(
                 {
                     "path": path,
@@ -1007,6 +1029,8 @@ def chat_work(key: str, messages: list[dict]) -> None:
                     "added": added,
                     "deleted": deleted,
                     "diff": pair is not None,
+                    # 셸 명령 뒤 내용을 뜨지 못했다 — 화면이 '비교 없음' 대신 이유를 보인다
+                    "afterUnknown": pair is not None and pair[1] == UNKNOWN,
                     "shell": any(r.get("tool") in ("Bash", "PowerShell") for r in rows),
                     # 하위 작업(서브에이전트)만 고친 파일 — 화면이 작게 보인다
                     "agent": all(r.get("agent") for r in rows),

@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 import time
@@ -43,6 +44,9 @@ NO_TALK_STOP = (
     "한 번 대화한 뒤 해제하거나, 필요 없으면 [삭제]하세요"
 )
 NO_TALK_START = "아직 대화가 없는 세션이라 Claude 가 곧 다시 켭니다. 잠시 뒤 켜진 것으로 보입니다"
+
+
+logger = logging.getLogger(__name__)
 
 
 def lost_name(row: dict, conversation: str) -> str | None:
@@ -80,7 +84,15 @@ class SessionService:
     def _background(self, fn, *args) -> None:
         """오래 걸리는 일(이어 띄우기 · 명단 대기 · 지우기)은 뒤에서 돌리고 응답은 바로 준다.
         시험은 이 메서드만 바꿔 끼워 실제로 띄우지 않는다."""
-        threading.Thread(target=fn, args=args, daemon=True).start()
+        threading.Thread(target=self._logged, args=(fn, *args), daemon=True).start()
+
+    @staticmethod
+    def _logged(fn, *args) -> None:
+        """뒤에서 돈 일의 예외를 로그에 남긴다 — 남기지 않으면 아무 흔적 없이 사라진다."""
+        try:
+            fn(*args)
+        except Exception:
+            logger.exception("뒤에서 돌던 일이 실패했다: %s", getattr(fn, "__name__", fn))
 
     # --- 목록 ---
 
@@ -167,6 +179,9 @@ class SessionService:
             # 컨텍스트 토큰 수 · 압축 횟수. 꺼진 세션도 마지막 상태를 보인다
             **chat.context(conversation),
         }
+        if worktree := agents.worktree_of(sid):
+            # [삭제] 확인 창이 경고한다 — claude rm 은 변경이 없으면 이 폴더까지 지운다
+            out["worktree"] = worktree
         if row.get("pid"):
             # 켜진 세션이 지금 무엇을 하나: working(답을 만드는 중) · blocked(사람의 확인이나
             # 답을 기다림) · done(쉬는 중). 프로젝트 탭 [세션] 목록도 보인다
@@ -175,6 +190,20 @@ class SessionService:
         if fail and time.time() - fail[1] <= FAIL_SHOW:
             out["error"], out["errorAt"] = fail
         return out
+
+    @staticmethod
+    def _worktree_users(rows: list[dict]) -> None:
+        """같은 작업용 복사본을 주인으로 가진 다른 줄의 이름 — 옛 세대 줄이 지금 세션의
+        복사본 주인으로 남는 일이 있다. [삭제] 확인 창이 함께 보인다."""
+        by_path: dict[str, list[dict]] = {}
+        for r in rows:
+            if r.get("worktree"):
+                by_path.setdefault(os.path.normcase(r["worktree"]), []).append(r)
+        for same in by_path.values():
+            for r in same:
+                others = [o["name"] for o in same if o is not r]
+                if others:
+                    r["worktreeShared"] = others
 
     def rows(self) -> list[dict]:
         """백그라운드 세션 줄 — 그룹 순서, 그룹 안 순서, 이름 순."""
@@ -188,6 +217,7 @@ class SessionService:
             order = r["order"] if r["order"] is not None else 1 << 30
             return (group, order, r["name"].casefold())
 
+        self._worktree_users(rows)
         return sorted(rows, key=key)
 
     def view(self) -> dict:
@@ -374,10 +404,9 @@ class SessionService:
         if row.get("pid"):
             kill_tree(row["pid"])
             agents.wait_roster_clear(row.get("sessionId") or "", limit=OP_TIMEOUT)
-        if err := agents.remove(sid):
-            self._fail(sid, f"{display_name(row)} 삭제 실패 — {err}")
-            return
+        # 복원 정보를 먼저 적는다 — 지운 뒤에 적다가 실패하면 목록에서는 빠졌는데 복원할 길이 없었다
         with registry.editing(self.path) as data:
+            data["deleted"] = [d for d in data["deleted"] if d["id"] != sid]
             data["deleted"].append(
                 {
                     "id": sid,
@@ -392,6 +421,26 @@ class SessionService:
                     "deletedAt": time.time(),
                 }
             )
+        try:
+            err = agents.remove(sid)
+        except Exception as exc:  # claude 를 못 부름 · 시간 초과
+            err = str(exc) or type(exc).__name__
+        self._drop_cache()
+        listed, _ = self.collect()
+        if err and sid in listed:
+            # 지우지 못했다 — 복원 정보를 되돌리고 실패를 그 줄에 보인다
+            with registry.editing(self.path) as data:
+                data["deleted"] = [d for d in data["deleted"] if d["id"] != sid]
+            self._fail(sid, f"{display_name(row)} 삭제 실패 — {err}")
+            return
+        if err:
+            # 실패를 알렸는데 목록에서는 빠졌다 — 복원 정보는 남기고, 줄이 없으니 실패는
+            # [삭제한 세션] 칸에 보인다 (줄에만 붙이면 아무 데도 안 보였다)
+            self._failures[f"deleted:{sid}"] = (
+                f"{display_name(row)} — 목록에서는 빠졌지만 claude rm 이 실패를 알렸습니다: {err}",
+                time.time(),
+            )
+        with registry.editing(self.path) as data:
             registry.forget(data, sid)
         self._ops.pop(sid, None)
         self._drop_cache()

@@ -119,6 +119,10 @@ export interface SessionRow {
   tokens: number | null
   /** 대화를 압축한 횟수 */
   compactions: number
+  /** 이 세션 기록이 주인인 작업용 복사본(worktree) 경로. claude rm 은 변경이 없으면 이 폴더까지 지운다 */
+  worktree?: string
+  /** 같은 작업용 복사본을 주인으로 가진 다른 세션 이름들 */
+  worktreeShared?: string[]
   /** 실패했을 때 그 이유. 뒤늦게 알게 되므로 목록 갱신에 실려 온다. */
   error?: string
   /** 같은 실패를 한 번만 띄우려고 함께 오는 실패 시각. */
@@ -345,6 +349,8 @@ export interface FileDiff {
   binary: boolean
   tooLarge: boolean
   hunks: DiffHunk[]
+  /** 스냅샷 비교: 고친 뒤 내용을 뜨지 못했다 (셸 명령 뒤 git 시간 초과 등) — 비교할 것이 없다 */
+  afterUnknown?: boolean
 }
 
 /** 작업 문서의 바뀐 파일 비교. 무엇을 합친 비교인지: [T-n] 커밋들(짧은 번호, 오래된 것부터) + 커밋 안 된 변경.
@@ -406,6 +412,8 @@ export interface ChatWorkFile {
   shell: boolean
   /** 하위 작업(서브에이전트)만 고쳤다 — 작게 보인다 */
   agent: boolean
+  /** 고친 뒤 내용을 뜨지 못했다 — 줄 수 · 비교가 없다 */
+  afterUnknown?: boolean
 }
 
 export interface ChatResponse {

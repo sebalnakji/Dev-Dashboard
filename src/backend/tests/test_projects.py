@@ -1004,6 +1004,7 @@ def test_대화의_답마다_그_차례에_고친_파일을_붙인다(client, en
             "added": None,
             "deleted": None,
             "diff": False,
+            "afterUnknown": False,
             "shell": False,
             "agent": False,
         }
@@ -1033,3 +1034,52 @@ def test_스냅샷_용량을_보이고_등록_해제_때_고르면_지운다(cli
     assert client.delete(f"/api/projects/{key}", params={"snapshots": True}).json() == {"ok": True}
     assert not snap.repo(project).exists() and not snap.log_path(project).exists()
     assert (project / "project.removed.json").exists()  # 다른 기록은 그대로
+
+
+def test_이후_내용을_모르는_기록이_있어도_대화_작업_차례_비교가_뜬다(client, env):
+    """셸 수정 스냅샷이 git 시간 초과로 이후를 'unknown' 으로 남기자, 그 값을 git diff 에 넘겨
+    대화 전체가 500 이 됐다."""
+    key = add(client, env)
+    write_task(key, 4, "doing", "s")
+    store.append_activity(
+        key, {"op": "modify", "path": "b.txt", "task": "T-4", "prompt": "p1", "tool": "Bash"}
+    )
+    store.append_activity(
+        key, {"op": "modify", "path": "src/a.py", "task": "T-4", "prompt": "p1", "tool": "Edit"}
+    )
+    snapshots(key, "b.txt", "T-4", ("before", "unknown"), ("after", "unknown"), prompt="p1")
+    snapshots(key, "src/a.py", "T-4", ("before", "a\n"), ("after", "b\n"), prompt="p1")
+
+    messages = chat_messages("p1")
+    records.chat_work(key, messages)
+    b, a = messages[1]["work"]["files"]
+    assert (b["path"], b["added"], b["deleted"], b["afterUnknown"]) == ("b.txt", None, None, True)
+    assert (a["added"], a["deleted"], a["afterUnknown"]) == (1, 1, False)  # 다른 파일은 그대로
+
+    q = {"path": "b.txt"}
+    turn = client.get(f"/api/projects/{key}/turns/p1/diff", params=q).json()
+    task = client.get(f"/api/projects/{key}/tasks/4/diff", params=q).json()
+    for d in (turn, task):
+        assert d["afterUnknown"] is True and d["hunks"] == []
+
+
+def test_대화_작업_상자는_파일_하나가_실패해도_나머지를_보인다(client, env, monkeypatch):
+    key = add(client, env)
+    for path in ("a.txt", "b.txt"):
+        store.append_activity(key, {"op": "modify", "path": path, "task": None, "prompt": "p1"})
+        snapshots(key, path, None, ("before", "1\n"), ("after", path + "\n"), prompt="p1")
+    real = records._numstat
+    broken = snap.put(store.project_dir(key), b"a.txt\n")  # a.txt 의 이후 내용 번호
+
+    def flaky(k, before, after):
+        if after == broken:
+            raise RuntimeError("git 실패")
+        return real(k, before, after)
+
+    monkeypatch.setattr(records, "_numstat", flaky)
+    records._numstat_cache.clear()
+    messages = chat_messages("p1")
+    records.chat_work(key, messages)
+    a, b = messages[1]["work"]["files"]
+    assert a["added"] is None and a["diff"] is True  # 실패한 파일은 줄 수만 빈다
+    assert b["added"] == 1

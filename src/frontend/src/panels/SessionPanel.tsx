@@ -153,9 +153,20 @@ export function SessionPanel() {
   function act(row: SessionRow, action: SessionAction) {
     setMenu(null)
     if (action === 'delete') {
-      const ask =
+      let ask =
         `'${row.name}' 세션을 삭제할까요?\n` +
         'Claude 세션 목록과 앱에서도 빠집니다. 대화 기록은 남아 30일 동안 [삭제한 세션]에서 복원할 수 있습니다.'
+      if (row.worktree) {
+        // claude rm 은 이 세션이 주인인 작업용 복사본도 (변경이 없으면) 폴더째 지운다
+        ask +=
+          `\n\n⚠ 이 세션은 작업용 복사본(worktree)을 가지고 있습니다:\n${row.worktree}\n` +
+          '커밋하지 않은 변경이 없으면 이 폴더도 함께 지워집니다 (가지 · 커밋은 남습니다).'
+        if (row.worktreeShared?.length) {
+          ask +=
+            `\n같은 작업용 복사본을 다른 세션도 쓰고 있습니다: ${row.worktreeShared.join(', ')}\n` +
+            '그 세션이 꺼져 있으면 지금 쓰는 작업 폴더가 지워질 수 있습니다.'
+        }
+      }
       if (!window.confirm(ask)) return
     }
     if (action !== 'foreground') {

@@ -456,10 +456,16 @@ def on_post_bash(store, tasks_mod, key: str, root: str, data: dict) -> None:
         if where is None:
             continue
         rel_p, worktree = where
+        # 이전 · 이후를 따로 뜬다 — 한쪽이 실패해도(git 시간 초과 등) 이미 구한 쪽은 지킨다
         try:
             if before == "HEAD":
                 head = snap.head_content(top, rel)
                 before = snap.put(project_dir, head) if head is not None else None
+        except Exception:
+            with contextlib.suppress(Exception):
+                log_error(["devdash_hook.py", "snapshot"])
+            before = "unknown"
+        try:
             if st is None:
                 after = None
             elif st[1] > SHELL_BLOB_LIMIT:
@@ -470,7 +476,7 @@ def on_post_bash(store, tasks_mod, key: str, root: str, data: dict) -> None:
         except Exception:
             with contextlib.suppress(Exception):
                 log_error(["devdash_hook.py", "snapshot"])
-            before, after = "unknown", "unknown"
+            after = "unknown"
         if before == after and before not in ("unknown",):
             continue  # 건드렸지만 내용은 그대로
         op = "create" if before is None else "delete" if after is None else "modify"

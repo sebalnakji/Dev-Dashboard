@@ -247,7 +247,14 @@ function WorkBox({
                 셸
               </span>
             )}
-            {f.diff && <LineCounts added={f.added} deleted={f.deleted} />}
+            {f.diff &&
+              (f.afterUnknown ? (
+                <span className="shrink-0 text-xs text-gray-600" title="고친 뒤 내용을 뜨지 못했습니다">
+                  내용 모름
+                </span>
+              ) : (
+                <LineCounts added={f.added} deleted={f.deleted} />
+              ))}
           </button>
         ))}
         {shown && load && (

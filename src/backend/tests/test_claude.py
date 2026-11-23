@@ -655,3 +655,92 @@ def test_대화는_목록에_보이는_세션만_준다(svc):
     client = TestClient(app)
     assert client.get(f"/api/claude/sessions/{ID_A}/chat").json() == {"messages": [], "more": False}
     assert client.get("/api/claude/sessions/99999999/chat").status_code == 404
+
+
+# --- 작업용 복사본(worktree)을 가진 줄 · 삭제 거절 이유 · 삭제 뒤 복원 정보 ---
+
+CLAIMED = (
+    "kept 4a78cb37 — its worktree is still at C:\\p\\.claude\\worktrees\\table-prefix\n"
+    "Another running background session (062e23a2) claims this worktree, "
+    "so it isn't this session's to remove."
+)
+
+
+@pytest.mark.parametrize(
+    ("code", "output", "expected"),
+    [
+        (0, "", None),
+        (0, "removed 4a78cb37", None),
+        (0, CLAIMED, "다른 세션(062e23a2)이 이 작업용 복사본(worktree)을 쓰고 있어"),
+        (1, CLAIMED, "다른 세션(062e23a2)이"),
+        (1, "kept x — the worktree has uncommitted changes", "커밋하지 않은 변경이"),
+        (
+            1,
+            "kept x — the worktree has unpushed commits; pass --discard-unpushed",
+            "올리지 않은 커밋이",
+        ),
+        (1, "No session matching 'x'", "No session matching 'x'"),
+        (1, "", "claude rm 이 실패했습니다 (코드 1)"),
+    ],
+)
+def test_삭제_거절_이유는_claude_rm_출력에_맞게(code, output, expected):
+    """출력에 worktree 만 있으면 '커밋하지 않은 변경' 이라고 했는데, 다른 세션이 쓰는 경우도 있다."""
+    reason = agents.remove_reason(code, output)
+    assert reason is None if expected is None else expected in reason
+
+
+def test_작업용_복사본을_가진_줄에는_경로와_같이_쓰는_줄이_붙는다(svc, monkeypatch, tmp_path):
+    jobs = tmp_path / "jobs"
+    wt = tmp_path / "proj" / ".claude" / "worktrees" / "table-prefix"
+    wt.mkdir(parents=True)
+    for sid in (ID_A, ID_B):
+        (jobs / sid).mkdir(parents=True)
+        (jobs / sid / "state.json").write_text(json.dumps({"worktreePath": str(wt)}), "utf-8")
+    (jobs / ID_C).mkdir()
+    gone = json.dumps({"worktreePath": str(tmp_path / "지워진")})
+    (jobs / ID_C / "state.json").write_text(gone, "utf-8")
+    monkeypatch.setattr(agents, "JOBS", jobs)
+    rows = names(svc)
+    assert rows["alpha"]["worktree"] == str(wt) and rows["alpha"]["worktreeShared"] == ["beta"]
+    assert rows["beta"]["worktreeShared"] == ["alpha"]
+    # 폴더가 이미 없으면 지울 것도 없다 — 경고하지 않는다
+    assert "worktree" not in rows["proj · cccccccc"]
+
+
+def test_삭제를_실패했는데_줄이_목록에서_빠졌으면_복원_정보를_남기고_실패를_삭제_칸에(
+    svc, monkeypatch
+):
+    """복원 정보 없이 목록에서만 빠진 일이 있었다 — 줄에만 붙인 실패는 줄이 빠지면 안 보인다."""
+    monkeypatch.setattr(agents, "last_conversation", lambda sid: AFTER_CLEAR_A)
+
+    def fail_but_gone(sid):
+        svc.every[:] = [r for r in svc.every if r["id"] != sid]
+        return "무언가 실패"
+
+    monkeypatch.setattr(agents, "remove", fail_but_gone)
+    svc.delete(svc.entry(ID_A))
+    run_background(svc)
+    view = svc.view()
+    assert [d["id"] for d in view["deleted"]] == [ID_A]
+    assert view["deleted"][0]["sessionId"] == AFTER_CLEAR_A
+    assert any("무언가 실패" in f["error"] for f in view["failures"])
+
+
+def test_claude_rm_을_부르다_예외가_나도_줄에_실패를_싣는다(svc, monkeypatch):
+    def broken(sid):
+        raise TimeoutError("시간 초과")
+
+    monkeypatch.setattr(agents, "remove", broken)
+    svc.delete(svc.entry(ID_A))
+    run_background(svc)
+    assert "시간 초과" in names(svc)["alpha"]["error"]
+    assert registry.load(svc.path)["deleted"] == []
+
+
+def test_뒤에서_돈_일의_예외는_로그에_남는다(caplog):
+    def boom():
+        raise RuntimeError("터짐")
+
+    with caplog.at_level("ERROR"):
+        SessionService._logged(boom)
+    assert "터짐" in caplog.text

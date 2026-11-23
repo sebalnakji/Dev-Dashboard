@@ -1241,3 +1241,23 @@ def test_PowerShell_읽기_명령은_git_도_부르지_않는다(env, capsys, do
     assert called == []
     shell(env["repo"], capsys, "Copy-Item a b", name="PowerShell")
     assert len(called) == 2
+
+
+def test_셸_수정_스냅샷에서_이후가_실패해도_구한_이전은_지킨다(env, capsys, doing, monkeypatch):
+    """git 시간 초과 하나로 이전 · 이후를 모두 unknown 으로 덮었다."""
+    repo = env["repo"]
+    real = snap.read_file
+
+    def broken(path):
+        if str(path).endswith("a.py"):
+            raise TimeoutError("git hash-object 시간 초과")
+        return real(path)
+
+    monkeypatch.setattr(snap, "read_file", broken)
+    monkeypatch.setattr(hook, "_snap", lambda: snap)
+    shell(
+        repo, capsys, "python fix.py", lambda: (repo / "src" / "a.py").write_text("고침", "utf-8")
+    )
+    rows = {r["when"]: r for r in snaps(env)}
+    assert content(env, rows["before"]["blob"]) == "a"  # 마지막 커밋
+    assert rows["after"]["blob"] == "unknown"
