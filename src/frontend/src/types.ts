@@ -123,6 +123,8 @@ export interface SessionRow {
   worktree?: string
   /** 같은 작업용 복사본을 주인으로 가진 다른 세션 이름들 */
   worktreeShared?: string[]
+  /** 숨겨 둔 같은 세션의 옛 세대 줄 (목록 번호, 새 것부터). [삭제]하면 함께 지운다 */
+  olderGenerations?: string[]
   /** 실패했을 때 그 이유. 뒤늦게 알게 되므로 목록 갱신에 실려 온다. */
   error?: string
   /** 같은 실패를 한 번만 띄우려고 함께 오는 실패 시각. */

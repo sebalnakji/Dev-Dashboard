@@ -61,6 +61,42 @@ def lost_name(row: dict, conversation: str) -> str | None:
     return chat.title(conversation)
 
 
+def generations(sessions: dict[str, dict]) -> dict[str, list[str]]:
+    """같은 세션의 옛 세대 묶기: {최근 세대 목록 번호: [옛 세대 목록 번호 …(새 것부터)]}.
+
+    옛 대시보드가 /clear 를 따라가며 이어 열 때, 같은 대화가 목록 번호를 바꿔 가며 여러 줄로 남았다.
+    어떤 줄의 마지막 대화(관리자 기록의 resumeSessionId)가 다른 줄의 처음 대화(목록의 sessionId)면
+    그 줄은 다른 줄의 옛 세대다. 사슬을 끝까지 따라가 가장 새 줄을 최근 세대로 본다.
+    Claude 목록에서는 지우지 않는다 — claude rm 은 그 줄이 주인인 작업용 복사본까지 지운다."""
+    first = {sid: r.get("resumeId") or r.get("sessionId") for sid, r in sessions.items()}
+    owner = {conv: sid for sid, conv in first.items() if conv}
+    newer: dict[str, str] = {}
+    for sid in sessions:
+        last = agents.last_conversation(sid)
+        nxt = owner.get(last) if last and last != first[sid] else None
+        if nxt and nxt != sid:
+            newer[sid] = nxt
+    out: dict[str, list[str]] = {}
+    for sid in newer:
+        head, seen = sid, {sid}
+        while head in newer and newer[head] not in seen:  # 고리면 멈춘다
+            head = newer[head]
+            seen.add(head)
+        if head in newer:  # 고리 — 어느 쪽도 최근 세대로 정할 수 없어 숨기지 않는다
+            continue
+        out.setdefault(head, []).append(sid)
+    for head, olds in out.items():
+        # 새 것부터: 최근 세대에 가까운 순서
+        def distance(sid: str, head: str = head) -> int:
+            n, cur = 0, sid
+            while cur != head:
+                cur, n = newer[cur], n + 1
+            return n
+
+        olds.sort(key=distance)
+    return out
+
+
 def has_name(row: dict) -> bool:
     """Claude 쪽 이름이 있는가. 켜진 세션은 이름이 없으면 목록 번호를 이름 자리에 넣어 준다."""
     return bool(row.get("name")) and row.get("name") != row.get("id")
@@ -209,7 +245,17 @@ class SessionService:
         """백그라운드 세션 줄 — 그룹 순서, 그룹 안 순서, 이름 순."""
         data = registry.load(self.path)
         sessions, _ = self.collect()
-        rows = [self._row(r, data) for r in sessions.values()]
+        # 같은 세션의 옛 세대는 숨기고 최근 세대 줄만 (그룹 · 순서도 최근 세대 줄의 것)
+        older = generations(sessions)
+        hidden = {sid for olds in older.values() for sid in olds}
+        rows = []
+        for sid, r in sessions.items():
+            if sid in hidden:
+                continue
+            row = self._row(r, data)
+            if sid in older:
+                row["olderGenerations"] = older[sid]
+            rows.append(row)
         rank = {g: i for i, g in enumerate(registry.group_names(data))}
 
         def key(r: dict):
@@ -392,7 +438,9 @@ class SessionService:
             return answer
         self._ops[row["id"]] = ("delete", time.time())
         self._failures.pop(row["id"], None)
-        self._background(self._delete, row)
+        # 숨겨 둔 옛 세대 줄도 함께 지운다 (최근 세대를 지운 뒤)
+        olds = generations(self.collect()[0]).get(row["id"], [])
+        self._background(self._delete, {**row, "olderGenerations": olds})
         self._drop_cache()
         return None
 
@@ -442,8 +490,35 @@ class SessionService:
             )
         with registry.editing(self.path) as data:
             registry.forget(data, sid)
+        self._remove_older(row)
         self._ops.pop(sid, None)
         self._drop_cache()
+
+    def _remove_older(self, row: dict) -> None:
+        """최근 세대를 지운 뒤 숨겨 둔 옛 세대 줄도 Claude 목록에서 지운다. 거절된 것(다른 세션이
+        작업용 복사본을 씀 등)은 이유를 [삭제한 세션] 칸에 보인다 — 최근 세대 줄은 이미 없다."""
+        olds = [o for o in row.get("olderGenerations") or [] if o]
+        if not olds:
+            return
+        listed, _ = self.collect()
+        refused = []
+        for old in olds:
+            if pid := (listed.get(old) or {}).get("pid"):
+                kill_tree(pid)
+            try:
+                err = agents.remove(old)
+            except Exception as exc:
+                err = str(exc) or type(exc).__name__
+            if err:
+                refused.append(f"{old} — {err}")
+            else:
+                with registry.editing(self.path) as data:
+                    registry.forget(data, old)
+        if refused:
+            self._failures[f"deleted:{row['id']}"] = (
+                f"{display_name(row)} 의 옛 세대 중 지우지 못한 것: " + "; ".join(refused),
+                time.time(),
+            )
 
     def restore(self, deleted_id: str) -> Result:
         """삭제한 세션을 마지막 대화로 다시 띄운다. 같은 목록 번호 · 이름으로 돌아오고(대화 번호에서

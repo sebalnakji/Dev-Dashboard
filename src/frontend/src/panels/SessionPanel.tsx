@@ -156,6 +156,10 @@ export function SessionPanel() {
       let ask =
         `'${row.name}' 세션을 삭제할까요?\n` +
         'Claude 세션 목록과 앱에서도 빠집니다. 대화 기록은 남아 30일 동안 [삭제한 세션]에서 복원할 수 있습니다.'
+      if (row.olderGenerations?.length) {
+        // 옛 대시보드의 /clear 처리로 남은 같은 세션의 옛 줄 — 화면에는 숨겨 두었다
+        ask += `\n\n같은 세션의 옛 세대 ${row.olderGenerations.length}개도 Claude 목록에서 함께 지웁니다.`
+      }
       if (row.worktree) {
         // claude rm 은 이 세션이 주인인 작업용 복사본도 (변경이 없으면) 폴더째 지운다
         ask +=

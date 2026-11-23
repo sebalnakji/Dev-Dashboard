@@ -744,3 +744,79 @@ def test_뒤에서_돈_일의_예외는_로그에_남는다(caplog):
     with caplog.at_level("ERROR"):
         SessionService._logged(boom)
     assert "터짐" in caplog.text
+
+
+# --- 같은 세션의 옛 세대 (옛 대시보드의 /clear 처리로 줄이 여럿 남은 것) ---
+
+
+@pytest.fixture
+def chain(svc, monkeypatch):
+    """C(가장 옛) → A → B(최근 세대): 각 줄의 마지막 대화가 다음 줄의 처음 대화."""
+    last = {ID_C: FIRST_A, ID_A: FIRST_B, ID_B: FIRST_B}
+    monkeypatch.setattr(agents, "last_conversation", lambda sid: last.get(sid))
+    for r in svc.every:
+        r["name"] = "head"
+    return svc
+
+
+def test_옛_세대_사슬을_따라가_최근_세대를_찾는다(chain):
+    sessions, _ = chain.collect()
+    assert service.generations(sessions) == {ID_B: [ID_A, ID_C]}  # 새 것부터
+
+
+def test_사슬이_없거나_고리면_숨기지_않는다(svc, monkeypatch):
+    sessions, _ = svc.collect()
+    assert service.generations(sessions) == {}
+    ring = {ID_A: FIRST_B, ID_B: FIRST_A}  # 서로를 가리킨다
+    monkeypatch.setattr(agents, "last_conversation", lambda sid: ring.get(sid))
+    assert service.generations(svc.collect()[0]) == {}
+
+
+def test_화면에는_최근_세대_줄만_보이고_그룹은_최근_세대_것(chain):
+    chain.edit(lambda d: (registry.add_group(d, "옛 그룹"), registry.add_group(d, "새 그룹")))
+    chain.place(ID_C, "옛 그룹", [ID_C])
+    chain.place(ID_B, "새 그룹", [ID_B])
+    rows = chain.rows()
+    assert [r["id"] for r in rows] == [ID_B]
+    assert rows[0]["group"] == "새 그룹" and rows[0]["olderGenerations"] == [ID_A, ID_C]
+
+
+def test_옛_세대와_작업용_복사본을_같이_가져도_다른_세션으로_세지_않는다(
+    chain, monkeypatch, tmp_path
+):
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    monkeypatch.setattr(agents, "worktree_of", lambda sid: str(wt))
+    (row,) = chain.rows()
+    assert row["worktree"] == str(wt) and "worktreeShared" not in row
+
+
+def test_최근_세대를_삭제하면_옛_세대도_함께_지운다(chain, monkeypatch):
+    removed: list[str] = []
+    monkeypatch.setattr(agents, "remove", lambda sid: removed.append(sid) or None)
+    assert chain.delete(chain.entry(ID_B)) is None
+    run_background(chain)
+    assert removed == [ID_B, ID_A, ID_C]  # 최근 세대 먼저, 옛 세대는 새 것부터
+    deleted = registry.load(chain.path)["deleted"]
+    assert [d["id"] for d in deleted] == [ID_B]  # 복원 정보는 최근 세대 것만
+
+
+def test_옛_세대가_거절되면_이유를_삭제한_세션_칸에(chain, monkeypatch):
+    def remove(sid):
+        if sid == ID_A:
+            return "다른 세션(062e23a2)이 이 작업용 복사본(worktree)을 쓰고 있어 지우지 않았습니다"
+        return None
+
+    monkeypatch.setattr(agents, "remove", remove)
+    chain.delete(chain.entry(ID_B))
+    run_background(chain)
+    errors = [f["error"] for f in chain.view()["failures"]]
+    assert any(ID_A in e and "다른 세션(062e23a2)" in e for e in errors)
+
+
+def test_최근_세대_삭제가_실패하면_옛_세대는_건드리지_않는다(chain, monkeypatch):
+    removed: list[str] = []
+    monkeypatch.setattr(agents, "remove", lambda sid: removed.append(sid) or "실패")
+    chain.delete(chain.entry(ID_B))
+    run_background(chain)
+    assert removed == [ID_B]
