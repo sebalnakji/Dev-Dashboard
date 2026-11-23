@@ -160,7 +160,9 @@ def respawn_flags(session_id: str) -> list[str]:
     return [f for f in flags if isinstance(f, str)] if isinstance(flags, list) else []
 
 
-def restore(cwd: str, conversation: str, flags: list[str], name: str | None) -> str | None:
+def restore(
+    cwd: str, conversation: str, flags: list[str], name: str | None, remote: bool = True
+) -> str | None:
     """삭제(claude rm)한 세션을 그 대화로 다시 띄운다. 실패하면 이유를 돌려준다.
 
     지우면 관리자 기록과 함께 실행 옵션도 사라진다. 그냥 이으면:
@@ -169,9 +171,10 @@ def restore(cwd: str, conversation: str, flags: list[str], name: str | None) -> 
       (관리자는 대화 기록의 이름을 읽지 않는다)
     그래서 지울 때 적어 둔 실행 옵션을 다시 붙이고, 원격 제어 · 이름이 빠져 있으면 더한다.
     원본이 이미 없어 옵션을 붙여도 복사본이 생기지 않고 같은 목록 번호로 돌아온다
-    (2.1.327 시험 세션으로 확인)."""
+    (2.1.327 시험 세션으로 확인).
+    remote=False 면 원격 제어를 더하지 않는다 — 호환 시험의 세션이 앱 목록에 남지 않게."""
     args = ["--bg", "--resume", conversation, *flags]
-    if "--remote-control" not in flags:
+    if remote and "--remote-control" not in flags:
         args.append("--remote-control")
     if name and "--name" not in flags:
         args += ["--name", name]

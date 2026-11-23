@@ -480,11 +480,13 @@ class Runner:
         return version
 
     def step_create(self) -> None:
+        # 원격 제어는 붙이지 않는다 — 붙이면 시험할 때마다 Claude 앱의 '최근 항목' 에 시험 세션이
+        # 하나씩 남고, 그 기록은 claude.ai 쪽이라 사람이 하나씩 지워야 한다 (사용자 결정).
+        # 그래서 '앱 사이드바에 보이는지' 는 시험하지 않는다
         code, out = self.claude(
             "--bg",
             "--name",
             self.name,
-            "--remote-control",
             "--model",
             MODEL,
             # '=' 로 붙인다 — 띄어 쓰면 --allowedTools 가 뒤의 질문까지 도구 이름으로 먹는다
@@ -733,7 +735,7 @@ class Runner:
             problems.append("rm 뒤에도 jobs/<번호> 가 남았다")
         if not self.transcript_path(conversation).exists():
             problems.append("rm 이 대화 기록 파일까지 지웠다 (복원할 수 없다)")
-        err = agents.restore(str(self.cwd), conversation, flags, self.name)
+        err = agents.restore(str(self.cwd), conversation, flags, self.name, remote=False)
         # 목록 번호는 이어 연 대화 번호의 앞 8자리다: /clear 한 적 없으면 같은 번호,
         # /clear 를 거쳤으면 /clear 뒤 대화 번호로 새로 생긴다 (대시보드 [복원]은 둘 다 찾는다)
         back_id = conversation[:8]
@@ -743,8 +745,8 @@ class Runner:
         else:
             self.a = back_id
             back = agents.respawn_flags(back_id)
-            if "--name" not in back or "--remote-control" not in back:
-                problems.append(f"복원 뒤 실행 옵션에 --name · --remote-control 이 없다: {back}")
+            if "--name" not in back:
+                problems.append(f"복원 뒤 실행 옵션에 --name 이 없다: {back}")
             if row.get("name") != self.name:
                 problems.append(f"복원 뒤 이름이 {row.get('name')!r}")
         self.set(15, not problems, "; ".join(problems))

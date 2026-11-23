@@ -167,6 +167,14 @@ def test_새_세션은_그_폴더에서_이름과_원격_제어를_붙여_백그
     assert "CLAUDE_CODE_CHILD_SESSION" not in call["env"]
 
 
+def test_복원은_원격_제어를_더하고_호환_시험에서는_더하지_않는다(ran):
+    """시험 세션에 원격 제어를 붙이면 Claude 앱의 '최근 항목' 에 시험할 때마다 하나씩 남는다."""
+    agents.restore("C:/proj", FIRST_A, ["--name", "a"], None)
+    agents.restore("C:/proj", FIRST_A, ["--name", "a"], None, remote=False)
+    assert ran[0]["args"] == ["--bg", "--resume", FIRST_A, "--name", "a", "--remote-control"]
+    assert ran[1]["args"] == ["--bg", "--resume", FIRST_A, "--name", "a"]
+
+
 def test_이어_열기는_전체_번호에_resume_만_붙인다(ran):
     """--name 같은 플래그를 붙이거나 번호를 줄이면 원본 대신 복사본이 생긴다."""
     agents.resume("C:/proj", FIRST_A)
