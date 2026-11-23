@@ -481,7 +481,7 @@ class Runner:
 
     def step_create(self) -> None:
         # 원격 제어는 붙이지 않는다 — 붙이면 시험할 때마다 Claude 앱의 '최근 항목' 에 시험 세션이
-        # 하나씩 남고, 그 기록은 claude.ai 쪽이라 사람이 하나씩 지워야 한다 (사용자 결정).
+        # 하나씩 남고, 그 기록은 claude.ai 쪽이라 사람이 하나씩 지워야 한다.
         # 그래서 '앱 사이드바에 보이는지' 는 시험하지 않는다
         code, out = self.claude(
             "--bg",
