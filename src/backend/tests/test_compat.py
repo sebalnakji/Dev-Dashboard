@@ -190,3 +190,65 @@ def test_대시보드는_지금_버전과_통과한_버전을_본다(monkeypatch
     compat.save_results("2.1.328", [compat.Item(1, "세션 목록", True)])
     status = compat.status()
     assert status["version"] == "2.1.329" and status["passedVersion"] == "2.1.328"
+
+
+# --- 버전이 바뀌면 자동 호환 시험 ---
+
+
+@pytest.mark.parametrize(
+    ("version", "results", "auto_error", "running", "expected"),
+    [
+        ("2.0.1", {"passedVersion": "2.0.0"}, {}, False, True),  # 새 버전
+        ("2.0.0", {"passedVersion": "2.0.0"}, {}, False, False),  # 이미 통과
+        ("2.0.1", {"passedVersion": "2.0.0"}, {}, True, False),  # 이미 도는 중 — 한 번에 하나
+        ("2.0.1", {"passedVersion": "2.0.0", "version": "2.0.1"}, {}, False, False),  # 실패한 버전
+        ("2.0.1", {"passedVersion": "2.0.0"}, {"version": "2.0.1"}, False, False),  # 시작 못 함
+        (None, {}, {}, False, False),  # 버전을 못 읽음
+    ],
+)
+def test_자동_호환_시험을_돌릴지(version, results, auto_error, running, expected):
+    from devdash import compat_auto
+
+    assert compat_auto.should_run(version, results, auto_error, running) is expected
+
+
+def test_자동_호환_시험은_켠_경우에만_새_버전에서_돌린다(monkeypatch):
+    from devdash import compat_auto, prefs
+
+    ran = []
+    monkeypatch.setattr(compat, "installed_version", lambda fresh=False: "2.0.1")
+    monkeypatch.setattr(compat, "load_results", lambda: {"passedVersion": "2.0.0"})
+    auto = compat_auto.AutoCompat(spawn=ran.append)
+    assert auto.check_once() is False and ran == []  # 꺼져 있다 (setup 에서 아니오)
+    prefs.put("autoCompat", True)
+    assert auto.check_once() is True and ran == ["2.0.1"]
+
+
+def test_시작하지_못하면_이유를_남기고_상태에_보인다(monkeypatch):
+    monkeypatch.setattr(compat, "installed_version", lambda fresh=False: "2.0.1")
+    compat.save_auto_error("2.0.1", "시험 폴더를 Claude 가 아직 신뢰하지 않았습니다")
+    assert "신뢰" in compat.status()["autoError"]
+    monkeypatch.setattr(compat, "installed_version", lambda fresh=False: "2.0.2")
+    assert compat.status()["autoError"] is None  # 다른 버전의 이유는 보이지 않는다
+
+
+def test_돌고_있는_시험이_있으면_상태에_보이고_손으로_또_돌리지_않는다(monkeypatch):
+    import os
+
+    compat.running_path().parent.mkdir(parents=True, exist_ok=True)
+    compat.running_path().write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")
+    monkeypatch.setattr(compat, "installed_version", lambda fresh=False: "2.0.1")
+    assert compat.status()["running"] is True
+    said = []
+    assert compat.main(said.append) == 1 and "돌고 있습니다" in said[0]
+    compat.running_path().write_text(json.dumps({"pid": 2**30}), encoding="utf-8")  # 끝난 프로세스
+    assert compat.running() is None and not compat.running_path().exists()
+
+
+def test_지금_버전에서_실패한_항목은_상태에_이유와_함께(monkeypatch):
+    monkeypatch.setattr(compat, "installed_version", lambda fresh=False: "2.0.1")
+    items = [compat.Item(1, "세션 목록", True), compat.Item(5, "/clear", False, "번호가 안 바뀜")]
+    compat.save_results("2.0.1", items)
+    assert compat.status()["failures"] == [
+        {"num": 5, "title": "/clear", "reason": "번호가 안 바뀜"}
+    ]

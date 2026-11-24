@@ -176,6 +176,14 @@ export interface CompatStatus {
   /** 마지막으로 모든 항목을 통과한 버전 */
   passedVersion: string | null
   lastRun: { version: string | null; at: string; passed: boolean } | null
+  /** 호환 시험이 지금 돌고 있다 (자동이든 손으로든) */
+  running?: boolean
+  /** setup 에서 '버전이 바뀌면 자동으로 호환 시험' 을 켰다 */
+  auto?: boolean
+  /** 지금 버전에서 실패한 항목 */
+  failures?: { num: number; title: string; reason: string }[]
+  /** 자동 시험을 시작하지 못한 이유 (시험 폴더 신뢰 등) */
+  autoError?: string | null
 }
 
 /** 새 세션의 폴더 후보. project 는 프로젝트 탭에 등록된 폴더 */

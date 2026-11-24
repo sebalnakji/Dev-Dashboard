@@ -27,6 +27,7 @@ cd Dev-Dashboard
 ```
 
 setup 은 가상환경 · 화면 빌드 · 플러그인 설치를 합니다. Claude Code 설정을 바꾸기 전에 무엇을 바꾸는지 보여 주고 묻습니다.
+마지막에 바탕화면 바로가기를 만들지, Claude Code 버전이 바뀌면 호환 시험을 자동으로 돌릴지 묻습니다 (답은 `~/.devdash/settings.json`).
 작업 기록을 켤 프로젝트에서는 Claude 에게 `/devdash:init` 을 입력하세요.
 
 ## 실행
@@ -45,7 +46,8 @@ setup 은 가상환경 · 화면 빌드 · 플러그인 설치를 합니다. Cla
 
 ## 알아 둘 것
 
-- **"시험하지 않은 Claude Code 버전" 안내가 뜨면** 대시보드 폴더의 `check-claude.bat` 을 실행하세요 (macOS · Linux: `./check-claude.sh`). 시험 세션을 띄워 세션 관리가 그 버전에서 되는지 확인합니다 (몇 분 걸림).
+- **Claude Code 가 업데이트되면** 대시보드가 기대는 동작이 바뀌었는지 호환 시험으로 확인합니다 (시험 세션 + haiku 질문 2번, 몇 분).
+  setup 에서 자동 시험을 켰으면 대시보드가 뒤에서 돌리고, 껐으면 "시험하지 않은 Claude Code 버전" 안내가 뜹니다 — 그때 대시보드 폴더의 `check-claude.bat` 을 실행하세요 (macOS · Linux: `./check-claude.sh`).
 - **대화 보존 기간**: Claude Code 는 대화 기록을 기본 30일 뒤 지웁니다. 지워진 세션은 이어 열 수 없습니다. 더 오래 두려면 `~/.claude/settings.json` 의 `cleanupPeriodDays` 를 늘리세요.
 - **세션 이름**은 만들 때(`claude --bg --name …` 또는 대시보드의 [+] 새 세션) 붙여야 유지됩니다. 나중에 `/rename` 한 이름은 세션이 다시 뜰 때 사라질 수 있습니다.
 

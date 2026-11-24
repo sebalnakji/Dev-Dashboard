@@ -15,7 +15,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from devdash import codestate, records
+from devdash import codestate, compat_auto, records
 from devdash.api import guard
 from devdash.api.claude_routes import router as claude_router
 from devdash.api.project_routes import router as project_router
@@ -54,6 +54,8 @@ def create_app(config_path: Path | None = None) -> FastAPI:
         # 첫 화면이 기다리지 않게 세션 목록 · 대화 기록 요약을 미리 읽어 둔다 (처음엔 몇 초 걸린다)
         if not os.environ.get("DEVDASH_NO_WARMUP"):  # 시험은 끈다 (실제 claude 를 부르지 않게)
             threading.Thread(target=_warm_up, args=(app.state.claude,), daemon=True).start()
+            # 버전이 바뀌면 호환 시험을 뒤에서 (setup 에서 '예' 한 경우만, 별도 프로세스)
+            compat_auto.AutoCompat().start()
         try:
             yield
         finally:

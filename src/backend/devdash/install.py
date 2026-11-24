@@ -132,6 +132,9 @@ def setup(ask: Ask = ask_yes) -> int:
             " 동작합니다 (서버 · 메모리 칸은 없어도 됩니다). 설치한 뒤 setup 을 다시 실행하세요."
         )
 
+    _step("편의 설정")
+    todo += setup_extras(ask)
+
     print("\n설치를 마쳤습니다.")
     if todo:
         print("\n남은 일:")
@@ -139,6 +142,38 @@ def setup(ask: Ask = ask_yes) -> int:
             print(f"  - {line}")
     print("\n실행은 start 입니다.\n")
     return 0
+
+
+def setup_extras(ask: Ask) -> list[str]:
+    """바탕화면 바로가기 · 버전이 바뀌면 자동 호환 시험. 이미 정한 것은 다시 묻지 않는다."""
+    from devdash import compat_auto, prefs, shortcut
+
+    todo: list[str] = []
+    made = shortcut.existing()
+    if made:
+        print(f"  바탕화면 바로가기: 있음 ({made})")
+    else:
+        desktop = shortcut.desktop_dir()
+        if desktop is None:
+            print("  바탕화면 폴더를 찾지 못해 바로가기는 만들지 않습니다.")
+        elif shortcut.target(desktop).exists():
+            print(f"  바탕화면에 같은 이름이 이미 있어 만들지 않습니다: {shortcut.target(desktop)}")
+        elif ask("  바탕화면에 바로가기를 만들까요?"):
+            try:
+                print(f"  만듦: {shortcut.create(desktop)}")
+            except OSError as exc:
+                todo.append(f"바탕화면 바로가기를 만들지 못했습니다: {exc}")
+
+    if prefs.get("autoCompat") is not None:
+        state = "켬" if compat_auto.enabled() else "끔"
+        print(f"  버전이 바뀌면 자동 호환 시험: {state} (바꾸려면 {prefs.path()} 의 autoCompat)")
+    else:
+        print(
+            "  Claude Code 가 업데이트되면 대시보드가 기대는 동작이 바뀌었는지 시험할 수 있습니다"
+            " (시험 세션을 띄우고 haiku 에게 두 번 묻습니다)."
+        )
+        compat_auto.save_preference(ask("  버전이 바뀌면 자동으로 호환 시험을 돌릴까요?"))
+    return todo
 
 
 def setup_claude(ask: Ask) -> list[str]:
@@ -284,6 +319,12 @@ def uninstall(ask: Ask = ask_yes) -> int:
             failed = True
         if failed:
             return 1
+
+    from devdash import shortcut
+
+    # setup 이 만든 바로가기만 지운다 (손으로 만든 것은 적혀 있지 않아 건드리지 않는다)
+    if (removed := shortcut.remove()) is not None:
+        print(f"바탕화면 바로가기를 지웠습니다: {removed}")
 
     print("\n지우지 않고 남겨 둔 것 (필요 없으면 직접 지우세요):")
     print(f"  - {home()}  작업 기록 · 서버 설정(servers.yaml) · 로그")

@@ -33,8 +33,8 @@ const NOTICE_MS = 4000
 const FAIL_NOTICE_MS = 10000
 /** 서버에 저장하지 않는 묶음(분류 안 됨 · 대화형 · 삭제한 세션)의 접힘. 이 브라우저만 기억한다 */
 const CLOSED_KEY = 'closedSections'
-/** Claude Code 버전은 자주 바뀌지 않는다 — 5분마다 본다 (서버도 10분 기억한다) */
-const COMPAT_MS = 5 * 60 * 1000
+/** 호환 상태: 파일만 읽어 가볍다. 시험이 끝나면 곧 안내가 바뀌게 30초마다 */
+const COMPAT_MS = 30 * 1000
 
 /** 화면 안에서 "분류 안 됨"을 가리키는 열쇠. 그룹 이름은 비어 있을 수 없어 겹치지 않는다 */
 const UNGROUPED = ''
@@ -547,22 +547,59 @@ export function SessionPanel() {
 function CompatNotice({ status }: { status: CompatStatus | null }) {
   if (!status?.version || status.version === status.passedVersion) return null
   const failedNow = status.lastRun?.version === status.version && !status.lastRun.passed
-  // 두 줄: 무엇인지 · 할 일. 작게 — 세션 목록을 보는 데 방해되지 않게. 버전은 마우스를 올리면
+  // 작게 — 세션 목록을 보는 데 방해되지 않게. 버전은 마우스를 올리면
   const versions = `지금 ${status.version}` + (status.passedVersion ? ` · 마지막으로 통과한 버전 ${status.passedVersion}` : '')
-  return (
-    <div title={versions} className="mb-3 rounded-md bg-[#3a2621] px-2.5 py-1.5 text-[11px] leading-snug text-[#f0b8a4]">
-      <p className="font-semibold text-[#f6cbb9]">
-        {failedNow ? 'Claude Code 호환 시험에서 실패한 항목이 있습니다' : '시험하지 않은 Claude Code 버전입니다'}
+  const box = 'mb-3 rounded-md px-2.5 py-1.5 text-[11px] leading-snug'
+  const rerun = (
+    <>
+      다시 시험: 대시보드 폴더의 <Code>check-claude</Code> (.bat · .sh)
+    </>
+  )
+
+  // 시험하는 중 — 자동(버전이 바뀜)이든 손으로든. 끝나면 통과는 사라지고 실패는 아래처럼
+  if (status.running || (status.auto && !failedNow && !status.autoError)) {
+    return (
+      <p title={versions} className={`${box} flex items-center gap-2 bg-btn text-gray-300`}>
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+        새 Claude Code 버전을 시험하는 중…
       </p>
-      {failedNow ? (
-        <p>
-          결과: <Code>~/.devdash/compat.json</Code>
+    )
+  }
+  if (failedNow) {
+    const failures = status.failures ?? []
+    return (
+      <div title={versions} className={`${box} bg-[#3a2621] text-[#f0b8a4]`}>
+        <p className="font-semibold text-[#f6cbb9]">Claude Code 호환 시험에서 실패한 항목이 있습니다</p>
+        <ul className="mt-0.5">
+          {failures.map((f) => (
+            <li key={f.num}>
+              {f.num}. {f.title}
+              {f.reason && <span className="text-[#d9a08c]"> — {f.reason}</span>}
+            </li>
+          ))}
+        </ul>
+        <p className="mt-0.5 text-[#d9a08c]">
+          결과: <Code>~/.devdash/compat.json</Code> · {rerun}
         </p>
-      ) : (
-        <p>
-          대시보드 폴더의 <Code>check-claude</Code> 실행 (.bat · .sh, 몇 분 걸림)
-        </p>
-      )}
+      </div>
+    )
+  }
+  if (status.autoError) {
+    return (
+      <div title={versions} className={`${box} bg-[#3a2621] text-[#f0b8a4]`}>
+        <p className="font-semibold text-[#f6cbb9]">새 Claude Code 버전을 자동으로 시험하지 못했습니다</p>
+        <p className="whitespace-pre-line">{status.autoError}</p>
+        <p className="text-[#d9a08c]">{rerun}</p>
+      </div>
+    )
+  }
+  // 자동 시험을 끈 경우 — 안내만 (두 줄)
+  return (
+    <div title={versions} className={`${box} bg-[#3a2621] text-[#f0b8a4]`}>
+      <p className="font-semibold text-[#f6cbb9]">시험하지 않은 Claude Code 버전입니다</p>
+      <p>
+        대시보드 폴더의 <Code>check-claude</Code> 실행 (.bat · .sh, 몇 분 걸림)
+      </p>
     </div>
   )
 }

@@ -18,3 +18,13 @@ def _devdash_home(tmp_path_factory, monkeypatch):
 def _no_warm_up(monkeypatch):
     """서버를 띄우는 시험이 실제 claude 목록을 미리 읽지 않게 (devdash.app._warm_up)."""
     monkeypatch.setenv("DEVDASH_NO_WARMUP", "1")
+
+
+@pytest.fixture(autouse=True)
+def _desktop(tmp_path_factory, monkeypatch):
+    """setup 을 부르는 시험이 실제 바탕화면에 바로가기를 만들지 않게 (devdash.shortcut)."""
+    from devdash import shortcut
+
+    desktop = tmp_path_factory.mktemp("desktop")
+    monkeypatch.setattr(shortcut, "desktop_dir", lambda: desktop)
+    return desktop

@@ -122,10 +122,56 @@ def test_다른_플러그인이_남아_있으면_칸을_치우지_않는다(env)
 def test_setup_은_빈_서버_설정을_만들고_있는_것은_그대로_둔다(env, monkeypatch, tmp_path):
     monkeypatch.setattr(install, "build_frontend", lambda clean_install: True)
     monkeypatch.setattr(install, "setup_claude", lambda ask: [])
-    assert install.setup() == 0
+    assert install.setup(ask=lambda q: False) == 0
     servers = tmp_path / "devdash" / "servers.yaml"
     assert "servers: []" in servers.read_text("utf-8")
 
     servers.write_text("servers: []  # 내가 고침\n", encoding="utf-8")
-    install.setup()
+    install.setup(ask=lambda q: False)
     assert servers.read_text("utf-8") == "servers: []  # 내가 고침\n"
+
+
+# --- 편의 설정: 바탕화면 바로가기 · 자동 호환 시험 ---
+
+
+def test_바로가기는_물어서_만들고_다시_묻지_않고_uninstall_은_만든_것만_지운다(
+    env, _desktop, capsys
+):
+    from devdash import prefs, shortcut
+
+    hand_made = _desktop / "Dev Dashboard.bat"  # 사람이 손으로 만든 것 — 건드리면 안 된다
+    hand_made.write_text("@echo off", encoding="utf-8")
+    asked = []
+    todo = install.setup_extras(lambda q: asked.append(q) or True)
+    assert todo == [] and any("바로가기" in q for q in asked)
+    made = shortcut.existing()
+    assert made is not None and made.parent == _desktop and prefs.get("shortcut") == str(made)
+
+    asked.clear()
+    install.setup_extras(
+        lambda q: asked.append(q) or True
+    )  # 이미 있으면 · 이미 답했으면 묻지 않는다
+    assert asked == [] and "있음" in capsys.readouterr().out
+
+    shortcut.remove()
+    assert not made.exists() and hand_made.exists() and prefs.get("shortcut") is None
+
+
+def test_바탕화면에_같은_이름이_있으면_만들지_않는다(env, _desktop, capsys):
+    from devdash import shortcut
+
+    shortcut.target(_desktop).write_text("남의 것", encoding="utf-8")
+    asked = []
+    install.setup_extras(lambda q: asked.append(q) or True)
+    assert not any("바로가기" in q for q in asked) and shortcut.existing() is None
+    assert shortcut.target(_desktop).read_text(encoding="utf-8") == "남의 것"
+
+
+def test_자동_호환_시험은_한_번_묻고_답을_적어_둔다(env):
+    from devdash import compat_auto
+
+    install.setup_extras(lambda q: "호환 시험" in q)
+    assert compat_auto.enabled() is True
+    asked = []
+    install.setup_extras(lambda q: asked.append(q) or False)
+    assert not any("호환 시험" in q for q in asked) and compat_auto.enabled() is True

@@ -244,22 +244,85 @@ _version_cache: tuple[float, str | None] = (0.0, None)
 VERSION_CACHE_SECONDS = 600
 
 
-def installed_version() -> str | None:
-    """지금 깔린 claude 의 버전 (10분 기억 — 세션 칸이 3초마다 묻는다)."""
+def installed_version(fresh: bool = False) -> str | None:
+    """지금 깔린 claude 의 버전 (10분 기억 — 세션 칸이 3초마다 묻는다). fresh 면 새로 묻는다."""
     global _version_cache
-    if time.time() - _version_cache[0] > VERSION_CACHE_SECONDS:
+    if fresh or time.time() - _version_cache[0] > VERSION_CACHE_SECONDS:
         code, out = agents._run(["--version"], timeout=30)
         _version_cache = (time.time(), parse_version(out) if code == 0 else None)
     return _version_cache[1]
 
 
+def running_path() -> Path:
+    return home() / "compat.running.json"
+
+
+def running() -> dict | None:
+    """돌고 있는 호환 시험 {pid, version, at} — 없거나 그 프로세스가 이미 끝났으면 None."""
+    import psutil
+
+    try:
+        data = json.loads(running_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if (
+        isinstance(data, dict)
+        and isinstance(data.get("pid"), int)
+        and psutil.pid_exists(data["pid"])
+    ):
+        return data
+    running_path().unlink(missing_ok=True)  # 멈춘 시험이 남긴 표시
+    return None
+
+
+def auto_error_path() -> Path:
+    return home() / "compat-auto.json"
+
+
+def load_auto_error() -> dict:
+    try:
+        data = json.loads(auto_error_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_auto_error(version: str, reason: str, output: str = "") -> None:
+    """자동 시험을 시작하지도 못한 이유 (시험 폴더 신뢰 등). 같은 버전은 되풀이하지 않는다."""
+    path = auto_error_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        "version": version,
+        "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "reason": reason,
+        "output": output[-2000:],
+    }
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def status() -> dict:
-    """대시보드가 보이는 것: 지금 버전 · 마지막으로 통과한 버전 · 마지막 시험."""
+    """대시보드가 보이는 것: 지금 버전 · 마지막으로 통과한 버전 · 마지막 시험 · 돌고 있나 ·
+    자동 시험 설정 · 지금 버전에서 실패한 항목 · 자동 시험을 시작하지 못한 이유."""
+    from devdash import prefs
+
     data = load_results()
+    version = installed_version()
+    failures = []
+    if data and data.get("version") == version and not data.get("passed"):
+        failures = [
+            {"num": i.get("num"), "title": i.get("title"), "reason": i.get("reason", "")}
+            for i in data.get("items") or []
+            if i.get("ok") is False
+        ]
+    auto_error = load_auto_error()
     return {
-        "version": installed_version(),
+        "version": version,
         "passedVersion": data.get("passedVersion"),
         "lastRun": {k: data.get(k) for k in ("version", "at", "passed")} if data else None,
+        "running": running() is not None,
+        "auto": bool(prefs.get("autoCompat")),
+        "failures": failures,
+        "autoError": auto_error.get("reason") if auto_error.get("version") == version else None,
     }
 
 
@@ -859,13 +922,24 @@ class Runner:
 
 
 def main(say: Callable[[str], None] = print) -> int:
+    if (other := running()) is not None:
+        say(f"다른 호환 시험이 돌고 있습니다 (PID {other['pid']}). 끝난 뒤 다시 하세요.")
+        return 1
     runner = Runner(say)
     if err := runner.preflight():
         say(err)
         return 1
-    say(f"Claude Code 호환 시험 — 시험 폴더 {runner.cwd} (몇 분 걸린다)\n")
-    version, items = runner.run()
-    data = save_results(version, items)
+    # 돌고 있다는 표시 — 대시보드가 '시험하는 중' 을 보이고, 자동 시험과 겹치지 않게
+    running_path().parent.mkdir(parents=True, exist_ok=True)
+    running_path().write_text(
+        json.dumps({"pid": os.getpid(), "at": time.strftime("%Y-%m-%dT%H:%M:%S")}), encoding="utf-8"
+    )
+    try:
+        say(f"Claude Code 호환 시험 — 시험 폴더 {runner.cwd} (몇 분 걸린다)\n")
+        version, items = runner.run()
+        data = save_results(version, items)
+    finally:
+        running_path().unlink(missing_ok=True)
     failed = [i for i in items if i.ok is False]
     say("")
     if failed:
