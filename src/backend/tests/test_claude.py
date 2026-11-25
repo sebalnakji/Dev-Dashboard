@@ -302,6 +302,7 @@ def svc(tmp_path, monkeypatch):
     monkeypatch.setattr(agents, "in_roster", lambda conversation: False)
     monkeypatch.setattr(agents, "bg_task_count", lambda sid: 1)
     monkeypatch.setattr(agents, "last_conversation", lambda sid: None)
+    monkeypatch.setattr(agents, "first_conversation", lambda sid: None, raising=False)
     monkeypatch.setattr(agents, "job_state", lambda sid: None)
     monkeypatch.setattr(agents, "respawn_flags", lambda sid: [])
     monkeypatch.setattr(service, "kill_tree", lambda pid: calls.append(("kill", pid)))
@@ -924,3 +925,78 @@ def test_앱별_메모리_프로세스는_JSON_으로_순위를_낸다():
     )
     apps = json.loads(out.stdout)
     assert len(apps) == 3 and apps[0]["bytes"] >= apps[1]["bytes"] >= apps[2]["bytes"]
+
+
+# --- 켜진 세션은 /clear 하면 목록의 sessionId 가 새 대화로 바뀐다 (처음 대화는 관리자 기록에) ---
+
+
+def test_처음_대화는_관리자_기록의_sessionId_다(tmp_path, monkeypatch):
+    monkeypatch.setattr(agents, "JOBS", tmp_path)
+    (tmp_path / ID_A).mkdir()
+    (tmp_path / ID_A / "state.json").write_text(
+        json.dumps({"sessionId": FIRST_A, "resumeSessionId": AFTER_CLEAR_A}), encoding="utf-8"
+    )
+    assert agents.first_conversation(ID_A) == FIRST_A
+    assert agents.last_conversation(ID_A) == AFTER_CLEAR_A
+    assert agents.first_conversation("없음") is None
+
+
+@pytest.fixture
+def cleared(svc, monkeypatch):
+    """ID_A 를 /clear 한 뒤: 목록(--all · --json)의 sessionId 는 새 대화, 관리자 기록의 처음 대화는 그대로.
+    관리자 명단에는 처음 대화 번호만 적힌다 (2.1.331 확인)."""
+    monkeypatch.setattr(agents, "first_conversation", lambda sid: {ID_A: FIRST_A}.get(sid))
+    monkeypatch.setattr(agents, "last_conversation", lambda sid: {ID_A: AFTER_CLEAR_A}.get(sid))
+    svc.every[0]["sessionId"] = AFTER_CLEAR_A
+    svc.waited = []
+    monkeypatch.setattr(
+        agents, "wait_roster_clear", lambda conv, limit=20: svc.waited.append(conv) or True
+    )
+    return svc
+
+
+def test_켜진_최근_세대를_clear_해도_옛_세대는_계속_숨는다(svc, monkeypatch):
+    """C → A → B(켜짐). B 를 /clear 하면 목록의 번호가 바뀌어, A 의 마지막 대화와 맞지 않게 됐다."""
+    first = {ID_A: FIRST_A, ID_B: FIRST_B, ID_C: FIRST_C}
+    last = {ID_C: FIRST_A, ID_A: FIRST_B, ID_B: AFTER_CLEAR_A}
+    monkeypatch.setattr(agents, "first_conversation", lambda sid: first.get(sid))
+    monkeypatch.setattr(agents, "last_conversation", lambda sid: last.get(sid))
+    svc.every[1]["sessionId"] = AFTER_CLEAR_A  # --all 도 새 번호로 바뀐다
+    svc.live.append(bg(ID_B, AFTER_CLEAR_A, "beta", svc.cwd, pid=9, state="done"))
+    (row,) = svc.rows()
+    assert row["id"] == ID_B and row["olderGenerations"] == [ID_A, ID_C]
+    assert row["conversation"] == AFTER_CLEAR_A  # 대화 · 토큰은 지금 대화를 읽는다
+
+
+def test_clear_한_세션도_해제하면_명단에서_빠질_때까지_기다린다(cleared):
+    """명단에는 처음 번호만 있다 — 지금 번호로 확인하면 곧바로 빠진 것으로 보고, 그 사이 이어 열면
+    복사본이 생긴다."""
+    cleared.live.append(bg(ID_A, AFTER_CLEAR_A, "alpha", cleared.cwd, pid=9, state="done"))
+    assert cleared.stop(cleared.entry(ID_A)) is None
+    run_background(cleared)
+    assert FIRST_A in cleared.waited
+
+
+def test_clear_한_세션을_삭제할_때도_처음_번호로_기다리고_복원은_마지막_대화로(
+    cleared, monkeypatch
+):
+    monkeypatch.setattr(agents, "remove", lambda sid: None)
+    cleared.live.append(bg(ID_A, AFTER_CLEAR_A, "alpha", cleared.cwd, pid=9, state="done"))
+    assert cleared.delete(cleared.entry(ID_A)) is None
+    run_background(cleared)
+    assert FIRST_A in cleared.waited
+    assert registry.load(cleared.path)["deleted"][0]["sessionId"] == AFTER_CLEAR_A
+
+
+def test_끈_직후_목록이_아직_새_번호여도_처음_대화로_이어_연다(cleared, monkeypatch):
+    assert cleared.start(cleared.entry(ID_A)) is None
+    run_background(cleared)
+    assert ("resume", cleared.cwd, FIRST_A) in cleared.calls and FIRST_A in cleared.waited
+    cleared._ops.clear()
+    assert cleared.foreground(cleared.entry(ID_A)) is None
+    assert ("term", ["claude", "--resume", FIRST_A]) in cleared.calls
+
+
+def test_포그라운드는_처음_번호가_명단에_있으면_기다리게_한다(cleared, monkeypatch):
+    monkeypatch.setattr(agents, "in_roster", lambda conv: conv == FIRST_A)
+    assert "정리 중" in cleared.foreground(cleared.entry(ID_A))

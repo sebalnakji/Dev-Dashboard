@@ -102,8 +102,22 @@ def live_sessions() -> list:
 
 def all_sessions() -> list:
     """백그라운드 세션 전부. 오래 꺼진 세션은 여기에만 `state: done` 으로 남는다.
-    꺼진 행의 sessionId 는 **처음 대화 번호**다 — 이어 열 때 이것을 쓴다 (/clear 뒤에도)."""
+    꺼진 행의 sessionId 는 **처음 대화 번호**지만, 켜진 세션을 /clear 하면 이 목록에서도 새 대화
+    번호로 바뀐다 (2.1.331 확인). 처음 대화가 필요하면 first_conversation 을 쓴다."""
     return run_json(["agents", "--all", "--json"])
+
+
+def first_conversation(session_id: str) -> str | None:
+    """이 세션의 처음 대화 번호 (jobs/<목록 번호>/state.json 의 sessionId). 못 읽으면 None.
+
+    켜진 채 /clear 해도 그대로다. 이어 열기(--resume)와 관리자 명단(in_roster)은 처음 번호를
+    쓴다 — 명단에는 처음 번호만 적혀 있어, 지금 번호로 보면 이미 빠진 것처럼 보인다."""
+    try:
+        state = json.loads((JOBS / session_id / "state.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    value = state.get("sessionId") if isinstance(state, dict) else None
+    return value if isinstance(value, str) and value else None
 
 
 def last_conversation(session_id: str) -> str | None:

@@ -448,7 +448,8 @@ class Runner:
         if r and r.get("pid"):
             kill_tree(r["pid"])
         gone = self.wait(lambda: not (self.row(sid) or {}).get("pid"), 20)
-        conv = (r or {}).get("sessionId") or ""
+        # 명단에는 처음 번호만 적힌다 — /clear 한 세션은 목록의 번호로 보면 이미 빠진 것처럼 보인다
+        conv = agents.first_conversation(sid) or (r or {}).get("sessionId") or ""
         released = self.wait(lambda: not agents.in_roster(conv), 30)
         time.sleep(3)  # 빠진 직후 바로 이어 열면 복사본이 생긴 적이 있다
         return bool(gone and released)
@@ -456,7 +457,7 @@ class Runner:
     def stop(self, sid: str) -> bool:
         """claude stop 으로 끈다. /clear 를 실어 깨운 세션은 목록 상태가 한동안 working 이라, 이때
         프로세스를 끊으면 관리자가 '죽었다'(crashed)로 보고 다시 띄운다 (2.1.328 확인)."""
-        conv = (self.row(sid) or {}).get("sessionId") or ""
+        conv = agents.first_conversation(sid) or (self.row(sid) or {}).get("sessionId") or ""
         self.claude("stop", sid)
         gone = self.wait(lambda: not (self.row(sid) or {}).get("pid"), 30)
         released = self.wait(lambda: not agents.in_roster(conv), 30)

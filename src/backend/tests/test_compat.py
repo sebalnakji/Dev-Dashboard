@@ -252,3 +252,17 @@ def test_지금_버전에서_실패한_항목은_상태에_이유와_함께(monk
     assert compat.status()["failures"] == [
         {"num": 5, "title": "/clear", "reason": "번호가 안 바뀜"}
     ]
+
+
+def test_시험_세션을_끌_때_명단은_처음_대화_번호로_본다(monkeypatch):
+    """/clear 한 뒤에는 목록의 번호가 새 대화다 — 명단에는 처음 번호만 있어, 그 번호로 보면
+    기다리지 않고 다음으로 넘어갔다."""
+    runner = compat.Runner(lambda line: None)
+    asked = []
+    monkeypatch.setattr(compat.agents, "first_conversation", lambda sid: "first-1")
+    monkeypatch.setattr(compat.agents, "in_roster", lambda conv: asked.append(conv) or False)
+    monkeypatch.setattr(runner, "row", lambda sid: {"id": sid, "sessionId": "after-clear"})
+    monkeypatch.setattr(runner, "claude", lambda *args, **kw: (0, ""))
+    monkeypatch.setattr(compat.time, "sleep", lambda s: None)
+    assert runner.kill("a") and runner.stop("a")
+    assert asked == ["first-1", "first-1"]

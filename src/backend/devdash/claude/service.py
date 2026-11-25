@@ -69,7 +69,7 @@ def generations(sessions: dict[str, dict]) -> dict[str, list[str]]:
     """같은 세션의 옛 세대 묶기: {최근 세대 목록 번호: [옛 세대 목록 번호 …(새 것부터)]}.
 
     옛 대시보드가 /clear 를 따라가며 이어 열 때, 같은 대화가 목록 번호를 바꿔 가며 여러 줄로 남았다.
-    어떤 줄의 마지막 대화(관리자 기록의 resumeSessionId)가 다른 줄의 처음 대화(목록의 sessionId)면
+    어떤 줄의 마지막 대화(관리자 기록의 resumeSessionId)가 다른 줄의 처음 대화(resumeId)면
     그 줄은 다른 줄의 옛 세대다. 사슬을 끝까지 따라가 가장 새 줄을 최근 세대로 본다.
     Claude 목록에서는 지우지 않는다 — claude rm 은 그 줄이 주인인 작업용 복사본까지 지운다."""
     first = {sid: r.get("resumeId") or r.get("sessionId") for sid, r in sessions.items()}
@@ -201,19 +201,24 @@ class SessionService:
         """(목록 번호 → 백그라운드 세션, 대화형 세션 목록).
 
         `--all` 이 바탕이고, 켜진 목록(`--json`)의 값(pid · 상태 · 지금 대화 번호)이 덮는다.
-        `--all` 의 sessionId 는 처음 대화 번호라 이어 열 때 쓰도록 resumeId 로 따로 둔다."""
+        resumeId 는 **처음 대화 번호**다 — 이어 열기 · 관리자 명단 · 옛 세대 판정이 쓴다.
+        목록의 sessionId 는 켜진 세션을 /clear 하면 새 대화로 바뀌므로 관리자 기록에서 읽고,
+        못 읽을 때만 목록의 것을 쓴다."""
         live, every = self._cached_lists()
         sessions: dict[str, dict] = {}
         for r in every:
             if r.get("id") and r.get("kind") != "interactive":
-                sessions[r["id"]] = {**r, "resumeId": r.get("sessionId")}
+                first = agents.first_conversation(r["id"]) or r.get("sessionId")
+                sessions[r["id"]] = {**r, "resumeId": first}
         interactive = []
         for r in live:
             if r.get("kind") == "interactive" or not r.get("id"):
                 interactive.append(r)
                 continue
-            base = sessions.setdefault(r["id"], {"resumeId": r.get("sessionId")})
-            base.update(r)
+            if r["id"] not in sessions:
+                first = agents.first_conversation(r["id"]) or r.get("sessionId")
+                sessions[r["id"]] = {"resumeId": first}
+            sessions[r["id"]].update(r)
         return sessions, interactive
 
     def entry(self, session_id: str) -> dict | None:
@@ -452,7 +457,7 @@ class SessionService:
 
         # 관리자 명단에서 빠질 때(약 5초)까지 '해제 중'을 유지한 뒤 푼다
         def finish() -> None:
-            agents.wait_roster_clear(row.get("sessionId") or "", limit=OP_TIMEOUT)
+            agents.wait_roster_clear(row.get("resumeId") or "", limit=OP_TIMEOUT)
             self._ops.pop(row["id"], None)
 
         self._background(finish)
@@ -506,7 +511,7 @@ class SessionService:
         flags = agents.respawn_flags(sid)
         if row.get("pid"):
             kill_tree(row["pid"])
-            agents.wait_roster_clear(row.get("sessionId") or "", limit=OP_TIMEOUT)
+            agents.wait_roster_clear(row.get("resumeId") or "", limit=OP_TIMEOUT)
         # 복원 정보를 먼저 적는다 — 지운 뒤에 적다가 실패하면 목록에서는 빠졌는데 복원할 길이 없었다
         with registry.editing(self.path) as data:
             data["deleted"] = [d for d in data["deleted"] if d["id"] != sid]
