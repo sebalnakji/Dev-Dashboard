@@ -184,6 +184,8 @@ export interface CompatStatus {
   failures?: { num: number; title: string; reason: string }[]
   /** 자동 시험을 시작하지 못한 이유 (시험 폴더 신뢰 등) */
   autoError?: string | null
+  /** 마치지 못한 이유 — 도중에 claude 실행 파일이 사라짐 (자동 업데이트). 자동 시험은 몇 분 뒤 다시 한다 */
+  unfinished?: string | null
 }
 
 /** 새 세션의 폴더 후보. project 는 프로젝트 탭에 등록된 폴더 */

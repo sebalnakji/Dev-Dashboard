@@ -559,9 +559,14 @@ function CompatNotice({ status }: { status: CompatStatus | null }) {
   // 시험하는 중 — 자동(버전이 바뀜)이든 손으로든. 끝나면 통과는 사라지고 실패는 아래처럼
   if (status.running || (status.auto && !failedNow && !status.autoError)) {
     return (
-      <p title={versions} className={`${box} flex items-center gap-2 bg-btn text-gray-300`}>
+      <p
+        title={status.unfinished ? `${versions}\n${status.unfinished}` : versions}
+        className={`${box} flex items-center gap-2 bg-btn text-gray-300`}
+      >
         <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
-        새 Claude Code 버전을 시험하는 중…
+        {status.unfinished && !status.running
+          ? '시험을 마치지 못해 잠시 뒤 다시 합니다'
+          : '새 Claude Code 버전을 시험하는 중…'}
       </p>
     )
   }
@@ -589,6 +594,15 @@ function CompatNotice({ status }: { status: CompatStatus | null }) {
       <div title={versions} className={`${box} bg-[#3a2621] text-[#f0b8a4]`}>
         <p className="font-semibold text-[#f6cbb9]">새 Claude Code 버전을 자동으로 시험하지 못했습니다</p>
         <p className="whitespace-pre-line">{status.autoError}</p>
+        <p className="text-[#d9a08c]">{rerun}</p>
+      </div>
+    )
+  }
+  if (status.unfinished) {
+    return (
+      <div title={versions} className={`${box} bg-[#3a2621] text-[#f0b8a4]`}>
+        <p className="font-semibold text-[#f6cbb9]">Claude Code 호환 시험을 마치지 못했습니다</p>
+        <p>{status.unfinished}</p>
         <p className="text-[#d9a08c]">{rerun}</p>
       </div>
     )

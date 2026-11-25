@@ -218,7 +218,7 @@ def test_자동_호환_시험은_켠_경우에만_새_버전에서_돌린다(mon
     ran = []
     monkeypatch.setattr(compat, "installed_version", lambda fresh=False: "2.0.1")
     monkeypatch.setattr(compat, "load_results", lambda: {"passedVersion": "2.0.0"})
-    auto = compat_auto.AutoCompat(spawn=ran.append)
+    auto = compat_auto.AutoCompat(spawn=ran.append)  # append 는 None — 시험을 마쳤다는 뜻
     assert auto.check_once() is False and ran == []  # 꺼져 있다 (setup 에서 아니오)
     prefs.put("autoCompat", True)
     assert auto.check_once() is True and ran == ["2.0.1"]
@@ -287,3 +287,203 @@ def test_켜진_채_clear_한_뒤_번호가_있을_자리(change, reason):
         assert problems == []
     else:
         assert len(problems) == 1 and reason in problems[0]
+
+
+# --- 도중에 claude 실행 파일이 사라짐 (자동 업데이트 = npm 전역 설치와 겹침) ---------------
+
+
+def test_claude_cmd_가_부르는_진짜_실행_파일까지_본다(tmp_path):
+    """npm 설치 중에는 claude.cmd 는 남고 그 안의 claude.exe 만 사라진다 (2.1.331 에서 겪음)."""
+    exe = tmp_path / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b"1")
+    cmd = tmp_path / "claude.cmd"
+    target = r"%dp0%\node_modules\@anthropic-ai\claude-code\bin\claude.exe"
+    cmd.write_text(f'@ECHO off\n"{target}"   %*\n', encoding="utf-8")
+    files = compat.claude_files(str(cmd))
+    assert files == [cmd, exe]
+    before = compat.claude_state(files)
+    exe.unlink()
+    assert compat.claude_state(files)[1] is None
+    exe.write_bytes(b"22")  # 다시 설치됨
+    assert compat.claude_state(files)[1] not in (before[1], None)
+    assert compat.claude_files(None) == []
+
+
+@pytest.fixture
+def runner(monkeypatch, tmp_path):
+    """실행 파일이 있는 Runner. 항목은 모두 통과하는 가짜 — 시험마다 하나씩 바꾼다."""
+    exe = tmp_path / "claude"
+    exe.write_bytes(b"1")
+    monkeypatch.setattr(compat.shutil, "which", lambda name: str(exe))
+    r = compat.Runner(lambda line: None)
+    r.exe, r.ran = exe, []
+    r.a = "aaaaaaaa"
+    monkeypatch.setattr(compat.time, "sleep", lambda s: None)
+    monkeypatch.setattr(compat, "Runner", lambda say: r)
+    for name in ("every", "prepare", "cleanup", "preflight", "wait_claude"):
+        value = [] if name == "every" else None
+        monkeypatch.setattr(r, name, lambda n=name, v=value: r.ran.append(n) or v)
+    steps = {
+        "create": 2,
+        "list": 1,
+        "transcript": 6,
+        "edits": 8,
+        "jobs": 12,
+        "name": 17,
+        "kill": 4,
+        "resume": 3,
+        "clear": 5,
+        "hooks": 9,
+        "delete": 15,
+        "retention": 16,
+        "print": 13,
+        "plugin": 10,
+    }
+    for step, num in steps.items():
+        monkeypatch.setattr(
+            r, f"step_{step}", lambda s=step, n=num: (r.ran.append(s), r.set(n, True))
+        )
+    for num in (7, 11):  # 다른 항목이 함께 정하는 것
+        r.set(num, True)
+    monkeypatch.setattr(r, "step_version", lambda: r.set(14, True) or "2.0.1")
+    monkeypatch.setattr(compat, "installed_version", lambda fresh=False: "2.0.1")
+    return r
+
+
+def fail_delete(runner, broken):
+    """삭제 항목을 하는 동안 broken() 이 일어나고 항목은 실패한다."""
+
+    def step():
+        broken()
+        runner.set(15, False, "claude rm 실패")
+
+    runner.step_delete = step
+
+
+def test_실행_파일이_없어서_실패하면_마치지_못함이고_앞_결과는_그대로다(runner):
+    compat.save_results("2.0.0", [compat.Item(1, "세션 목록", True)])
+    fail_delete(runner, runner.exe.unlink)
+    said = []
+    assert compat.main(said.append) == compat.UNFINISHED
+    data = compat.load_results()
+    assert data["version"] == "2.0.0" and data["passed"] and data["passedVersion"] == "2.0.0"
+    assert data["unfinished"]["version"] == "2.0.1"
+    assert "15. " in data["unfinished"]["reason"]
+    assert "마치지 못함" in said[-1]
+    status = compat.status()
+    assert status["unfinished"] == data["unfinished"]["reason"] and not status["failures"]
+    assert "retention" not in runner.ran  # 남은 항목은 하지 않는다
+    assert runner.ran[-2:] == ["wait_claude", "cleanup"]  # 돌아온 뒤 치운다
+    assert not compat.running_path().exists()
+
+
+def test_실패한_뒤_벌써_다시_깔려_있어도_마치지_못함이다(runner):
+    fail_delete(runner, lambda: runner.exe.write_bytes(b"22"))
+    assert compat.main(lambda line: None) == compat.UNFINISHED
+
+
+def test_실행_파일이_그대로면_실패는_실패다(runner):
+    fail_delete(runner, lambda: None)
+    assert compat.main(lambda line: None) == 1
+    data = compat.load_results()
+    assert data["version"] == "2.0.1" and not data["passed"] and "unfinished" not in data
+    assert "plugin" in runner.ran and "wait_claude" not in runner.ran
+
+
+def test_실행_파일이_바뀌어도_실패한_항목이_없으면_통과다(runner):
+    runner.step_delete = lambda: (runner.exe.write_bytes(b"22"), runner.set(15, True))
+    assert compat.main(lambda line: None) == 0
+
+
+def test_시작할_때_실행_파일이_없으면_마치지_못함이고_다시_마치면_지워진다(runner):
+    runner.exe.unlink()
+    assert compat.main(lambda line: None) == compat.UNFINISHED and runner.ran == []
+    assert compat.status()["unfinished"]
+    runner.exe.write_bytes(b"1")
+    runner.files_at_start = compat.claude_state(runner.files)
+    assert compat.main(lambda line: None) == 0
+    assert compat.status()["unfinished"] is None
+
+
+def test_명령이_실패한_순간에_사라졌으면_적어_둔다(runner, monkeypatch):
+    """claude.cmd 는 실행되고 안의 실행 파일이 없으면 코드 1, 껍데기까지 없으면 OSError."""
+    codes = iter([0, 1])
+    done = compat.subprocess.CompletedProcess
+    monkeypatch.setattr(compat.agents, "claude_exe", lambda: "claude")
+    monkeypatch.setattr(compat.subprocess, "run", lambda *a, **k: done(a, next(codes), "", ""))
+    runner.claude("agents")
+    assert runner.lost is False
+    runner.exe.unlink()
+    runner.claude("rm", "x")
+    assert runner.lost is True
+
+    def gone(*a, **k):
+        raise FileNotFoundError("claude")
+
+    runner.lost = False
+    monkeypatch.setattr(compat.subprocess, "run", gone)
+    assert runner.claude("rm", "x")[0] == -1 and runner.lost is True
+
+
+@pytest.fixture
+def auto(monkeypatch):
+    """자동 시험: spawn 이 돌려줄 값을 차례로 (이유 = 마치지 못함, None = 마침)."""
+    from devdash import compat_auto, prefs
+
+    prefs.put("autoCompat", True)
+    monkeypatch.setattr(compat, "installed_version", lambda fresh=False: "2.0.1")
+
+    def make(*outcomes):
+        left = iter(outcomes)
+        ran, slept = [], []
+
+        def spawn(version):
+            ran.append(version)
+            return next(left)
+
+        a = compat_auto.AutoCompat(spawn=spawn, sleep=slept.append)
+        a.ran, a.slept = ran, slept
+        return a
+
+    return make
+
+
+def test_자동_시험은_마치지_못하면_몇_분_뒤_다시_한다(auto):
+    from devdash import compat_auto
+
+    a = auto("사라짐", None)
+    assert a.check_once() is True
+    assert a.ran == ["2.0.1", "2.0.1"] and a.slept == [compat_auto.RETRY_DELAY]
+    assert compat.status()["autoError"] is None
+
+
+def test_자동_시험은_두_번_더_해도_안_되면_이유를_보이고_되풀이하지_않는다(auto):
+    a = auto("사라짐", "사라짐", "사라짐")
+    assert a.check_once() is True
+    assert len(a.ran) == 3 and len(a.slept) == 2
+    assert "사라짐" in compat.status()["autoError"]
+    assert a.check_once() is False and len(a.ran) == 3
+
+
+def test_기다리는_사이_사람이_시험을_마쳤으면_다시_하지_않는다(auto):
+    a = auto("사라짐")
+    a._sleep = lambda s: compat.save_results("2.0.1", [compat.Item(1, "세션 목록", True)])
+    assert a.check_once() is True and len(a.ran) == 1
+    assert compat.status()["autoError"] is None
+
+
+@pytest.mark.parametrize(("code", "reason"), [(compat.UNFINISHED, "사라짐"), (0, None), (1, None)])
+def test_별도_프로세스의_종료_코드로_마치지_못함을_안다(monkeypatch, code, reason):
+    from devdash import compat_auto
+
+    def run(*a, **k):
+        if code == compat.UNFINISHED:
+            compat.save_unfinished("2.0.1", "사라짐")
+        else:
+            compat.save_results("2.0.1", [compat.Item(1, "세션 목록", code == 0)])
+        return compat_auto.subprocess.CompletedProcess(a, code)
+
+    monkeypatch.setattr(compat_auto.subprocess, "run", run)
+    assert compat_auto.AutoCompat._run_check("2.0.1") == reason
+    assert not compat.load_auto_error()  # 시작하지 못한 것은 아니다

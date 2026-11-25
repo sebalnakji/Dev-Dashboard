@@ -232,6 +232,44 @@ def summary_line(item: Item) -> str:
     return f"  {mark}  {item.num:>2}. {item.title}{reason}"
 
 
+# --- claude 실행 파일 -----------------------------------------------------------------
+
+UNFINISHED = 3
+"""check-claude 의 종료 코드: 마치지 못함 (통과 0 · 실패 1 · 2 는 argparse 의 인자 오류)."""
+
+_CMD_TARGET = re.compile(r'"%(?:~?dp0)%?\\?([^"]+?\.(?:exe|[cm]?js))"', re.IGNORECASE)
+
+
+def claude_files(launcher: str | None) -> list[Path]:
+    """claude 를 실행할 때 거치는 파일들: PATH 에서 찾은 껍데기와 그것이 부르는 진짜 실행 파일.
+    npm 은 윈도우에 claude.cmd, 그 밖에는 심볼릭 링크를 둔다."""
+    if not launcher:
+        return []
+    path = Path(launcher)
+    files = [path]
+    if path.suffix.lower() in (".cmd", ".bat"):
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            text = ""
+        files += [path.parent / m.replace("\\", "/") for m in _CMD_TARGET.findall(text)]
+    elif (real := Path(os.path.realpath(path))) != path:
+        files.append(real)
+    return list(dict.fromkeys(files))
+
+
+def claude_state(files: list[Path]) -> list[tuple[int, int] | None]:
+    """파일마다 (고친 시각, 크기). 없으면 None. 다시 설치되면 값이 바뀐다."""
+    out: list[tuple[int, int] | None] = []
+    for path in files:
+        try:
+            st = path.stat()
+            out.append((st.st_mtime_ns, st.st_size))
+        except OSError:
+            out.append(None)
+    return out
+
+
 # --- 결과 파일 ------------------------------------------------------------------------
 
 
@@ -258,6 +296,28 @@ def save_results(version: str | None, items: list[Item]) -> dict:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return data
+
+
+def save_unfinished(version: str | None, reason: str) -> None:
+    """마치지 못한 시험을 적는다. 마지막으로 마친 시험의 결과(통과한 버전 · 항목)는 그대로 둔다 —
+    claude 가 없어서 생긴 일은 그 버전이 실패한 것이 아니다. 다음에 마치면 지워진다."""
+    data = load_results()
+    data["unfinished"] = {
+        "version": version,
+        "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "reason": reason,
+    }
+    path = results_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def unfinished_reason(version: str | None) -> str | None:
+    """이 버전의 시험을 마치지 못한 이유 (버전도 못 읽은 채 멈춘 시험 포함). 없으면 None."""
+    data = load_results().get("unfinished")
+    if not isinstance(data, dict) or data.get("version") not in (version, None):
+        return None
+    return data.get("reason") or "마치지 못함"
 
 
 _version_cache: tuple[float, str | None] = (0.0, None)
@@ -322,7 +382,8 @@ def save_auto_error(version: str, reason: str, output: str = "") -> None:
 
 def status() -> dict:
     """대시보드가 보이는 것: 지금 버전 · 마지막으로 통과한 버전 · 마지막 시험 · 돌고 있나 ·
-    자동 시험 설정 · 지금 버전에서 실패한 항목 · 자동 시험을 시작하지 못한 이유."""
+    자동 시험 설정 · 지금 버전에서 실패한 항목 · 자동 시험을 시작하지 못한 이유 ·
+    마치지 못한 이유 (도중에 claude 실행 파일이 사라짐)."""
     from devdash import prefs
 
     data = load_results()
@@ -343,6 +404,7 @@ def status() -> dict:
         "auto": bool(prefs.get("autoCompat")),
         "failures": failures,
         "autoError": auto_error.get("reason") if auto_error.get("version") == version else None,
+        "unfinished": unfinished_reason(version),
     }
 
 
@@ -407,6 +469,12 @@ class Runner:
         self.first: str | None = None  # 그 처음 대화 번호
         self.fake_resume_failed: bool | None = None
         self.untrusted: Path | None = None
+        # 실행 파일이 시험 도중 사라지거나 바뀌었나 — 자동 업데이트(npm 전역 설치)가 겹치면 몇 초
+        # 동안 claude 가 없다. 실패 문구는 언어 · 글자 코드마다 달라 파일을 직접 본다
+        self.files = claude_files(shutil.which("claude"))
+        self.files_at_start = claude_state(self.files)
+        self.lost = False  # 부른 명령이 실패한 순간에 그랬다
+        self.unfinished: str | None = None  # 그 때문에 시험을 마치지 못한 이유
 
     # --- 바탕 ---
 
@@ -425,7 +493,55 @@ class Runner:
             )
         except subprocess.TimeoutExpired:
             return -1, f"{timeout:.0f}초 안에 끝나지 않았다"
+        except OSError as exc:  # 껍데기(claude.cmd)까지 사라진 순간
+            self.note_lost()
+            return -1, f"claude 를 실행하지 못했다: {exc}"
+        if r.returncode != 0:
+            self.note_lost()
         return r.returncode, f"{r.stdout or ''}\n{r.stderr or ''}".strip()
+
+    def claude_missing(self) -> bool:
+        """지금 실행 파일이 없나."""
+        return not self.files or None in claude_state(self.files)
+
+    def note_lost(self) -> None:
+        """실패한 순간에 부른다: 실행 파일이 없거나 시험을 시작한 뒤 바뀌었으면 적어 둔다."""
+        if self.claude_missing() or claude_state(self.files) != self.files_at_start:
+            self.lost = True
+
+    def failed(self) -> list[Item]:
+        return [i for i in self.items.values() if i.ok is False]
+
+    def attempt(self, step: Callable[[], object]) -> object:
+        """항목 하나를 돌린다. 한 항목이 깨져도 나머지는 돈다. 실행 파일 때문에 실패한 항목이
+        생기면 unfinished 를 정한다 — 남은 항목은 돌려도 뜻이 없다."""
+        before = {i.num for i in self.failed()}
+        result = None
+        try:
+            result = step()
+        except Exception as exc:
+            num = next((n for n, i in self.items.items() if i.ok is None and not i.reason), 0)
+            self.say(f"  오류 ({step.__name__}): {type(exc).__name__}: {exc}")
+            if num:
+                self.set(num, False, f"{type(exc).__name__}: {exc}")
+        new = [i for i in self.failed() if i.num not in before]
+        if new:
+            self.note_lost()  # agents 로 부른 명령이 실패한 경우까지
+            if self.lost:
+                self.unfinished = (
+                    "시험 도중 claude 실행 파일이 사라지거나 바뀌었다 "
+                    "(Claude Code 가 업데이트 · 다시 설치되는 중) — "
+                    f"{new[0].num}. {new[0].title} 에서 멈춤"
+                )
+        return result
+
+    def wait_claude(self, limit: float = 90) -> None:
+        """사라진 실행 파일이 돌아와 실행될 때까지 — 그래야 시험 세션을 치울 수 있다."""
+        self.wait(
+            lambda: not self.claude_missing() and self.claude("--version", timeout=30)[0] == 0,
+            limit,
+            3,
+        )
 
     def json_list(self, *args: str, env: dict | None = None) -> object:
         _, out = self.claude(*args, env=env)
@@ -505,8 +621,6 @@ class Runner:
     # --- 준비 · 정리 ---
 
     def preflight(self) -> str | None:
-        if not shutil.which("claude"):
-            return "claude 명령을 찾지 못했습니다. Claude Code 를 설치한 뒤 다시 하세요."
         self.cwd.mkdir(parents=True, exist_ok=True)
         if not self.trusted():
             return (
@@ -900,8 +1014,9 @@ class Runner:
         version = None
         self.prepare()
         try:
-            version = self.step_version()
-            self.step_create()
+            version = self.attempt(self.step_version)
+            if not self.unfinished:
+                self.attempt(self.step_create)
             steps = [
                 self.step_list,
                 self.step_transcript,
@@ -918,23 +1033,21 @@ class Runner:
                 self.step_plugin,
             ]
             for step in steps:
+                if self.unfinished:
+                    break
                 if self.a is None and step not in (
                     self.step_edits,
                     self.step_print,
                     self.step_plugin,
                 ):
                     continue  # 시험 세션이 없으면 그 세션으로 하는 항목은 건너뛴다
-                try:
-                    step()
-                except Exception as exc:  # 한 항목이 깨져도 나머지는 돈다
-                    num = next(
-                        (n for n, i in self.items.items() if i.ok is None and not i.reason), 0
-                    )
-                    self.say(f"  오류 ({step.__name__}): {type(exc).__name__}: {exc}")
-                    if num:
-                        self.set(num, False, f"{type(exc).__name__}: {exc}")
+                self.attempt(step)
         finally:
+            if self.lost or self.claude_missing():
+                self.wait_claude()
             self.cleanup()
+        if self.unfinished:
+            return version, [self.items[n] for n in sorted(self.items)]
         for item in self.items.values():
             if item.ok is None and not item.reason:
                 item.reason = "시험 세션을 띄우지 못해 하지 못함"
@@ -955,6 +1068,11 @@ def main(say: Callable[[str], None] = print) -> int:
         say(f"다른 호환 시험이 돌고 있습니다 (PID {other['pid']}). 끝난 뒤 다시 하세요.")
         return 1
     runner = Runner(say)
+    if runner.claude_missing():  # 시작하려는 순간이 바로 다시 설치되는 중일 수 있다
+        reason = "claude 실행 파일이 없다 (업데이트 · 다시 설치되는 중이거나 설치돼 있지 않다)"
+        save_unfinished(None, reason)
+        say(f"마치지 못함 — {reason}. 몇 분 뒤 다시 하세요.")
+        return UNFINISHED
     if err := runner.preflight():
         say(err)
         return 1
@@ -966,6 +1084,10 @@ def main(say: Callable[[str], None] = print) -> int:
     try:
         say(f"Claude Code 호환 시험 — 시험 폴더 {runner.cwd} (몇 분 걸린다)\n")
         version, items = runner.run()
+        if runner.unfinished:
+            save_unfinished(version, runner.unfinished)
+            say(f"\n마치지 못함 — {runner.unfinished}. 몇 분 뒤 다시 하세요.")
+            return UNFINISHED
         data = save_results(version, items)
     finally:
         running_path().unlink(missing_ok=True)
