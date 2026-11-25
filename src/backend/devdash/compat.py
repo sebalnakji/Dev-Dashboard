@@ -197,6 +197,26 @@ def check_plugin_lists(marketplaces: object, plugins: object) -> str | None:
     return None
 
 
+def check_after_clear(
+    first: str, new: str, every: object, live: object, kept: object, rostered: bool
+) -> list[str]:
+    """5. 켜진 채 /clear 한 뒤 어느 번호가 어디에 있나 — 틀린 것의 이유들.
+
+    - 목록(--all · --json)의 sessionId 는 새 번호: 세션 칸이 지금 대화 · 토큰을 이 번호로 읽는다
+    - state.json 의 sessionId 는 처음 번호: 이어 열기와 옛 세대 판정이 이 번호를 쓴다
+    - 관리자 명단에는 처음 번호: 끈 뒤 명단에서 빠졌는지를 이 번호로 기다린다 (어긋나면 기다리지
+      않고 이어 열어 복사본이 생길 수 있다)"""
+    problems = []
+    for name, got in (("--all", every), ("--json", live)):
+        if got != new:
+            problems.append(f"/clear 뒤 {name} 의 sessionId 가 새 번호가 아니다: {str(got)[:8]}")
+    if kept != first:
+        problems.append(f"state.json 의 sessionId 가 처음 번호가 아니다: {str(kept)[:8]}")
+    if not rostered:
+        problems.append("/clear 뒤 관리자 명단에 처음 번호가 없다")
+    return problems
+
+
 def same_path(a: str | Path, b: str | Path) -> bool:
     return os.path.normcase(os.path.normpath(str(a))) == os.path.normcase(os.path.normpath(str(b)))
 
@@ -760,9 +780,17 @@ class Runner:
         row = self.row(self.a) or {}
         if row.get("name") != self.name:
             problems.append(f"/clear 뒤 이름이 {row.get('name')!r}")
-        kept = str(state().get("sessionId"))
-        if kept != self.first:
-            problems.append(f"state.json 의 sessionId 가 처음 번호가 아니다: {kept[:8]}")
+        first = self.first or ""
+        live = self.json_list("agents", "--json")
+        on = next((r for r in live if r.get("id") == self.a), {}) if isinstance(live, list) else {}
+        problems += check_after_clear(
+            first,
+            new,
+            row.get("sessionId"),
+            on.get("sessionId"),
+            state().get("sessionId"),
+            bool(self.wait(lambda: agents.in_roster(first), 10)),
+        )
         self.stop(self.a or "")
         if (self.row(self.a) or {}).get("sessionId") != self.first:
             problems.append("끈 뒤 --all 의 대화 번호가 처음 번호가 아니다")

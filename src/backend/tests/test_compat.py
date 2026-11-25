@@ -266,3 +266,24 @@ def test_시험_세션을_끌_때_명단은_처음_대화_번호로_본다(monke
     monkeypatch.setattr(compat.time, "sleep", lambda s: None)
     assert runner.kill("a") and runner.stop("a")
     assert asked == ["first-1", "first-1"]
+
+
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
+        ({}, None),
+        ({"every": "first-1"}, "--all 의 sessionId 가 새 번호가 아니다"),
+        ({"live": "first-1"}, "--json 의 sessionId 가 새 번호가 아니다"),
+        ({"live": None}, "--json 의 sessionId 가 새 번호가 아니다"),
+        ({"kept": "new-1"}, "state.json 의 sessionId 가 처음 번호가 아니다"),
+        ({"rostered": False}, "관리자 명단에 처음 번호가 없다"),
+    ],
+)
+def test_켜진_채_clear_한_뒤_번호가_있을_자리(change, reason):
+    """대시보드가 기대는 것: 목록은 새 번호 · state.json 과 관리자 명단은 처음 번호."""
+    ok = {"every": "new-1", "live": "new-1", "kept": "first-1", "rostered": True}
+    problems = compat.check_after_clear("first-1", "new-1", **{**ok, **change})
+    if reason is None:
+        assert problems == []
+    else:
+        assert len(problems) == 1 and reason in problems[0]
