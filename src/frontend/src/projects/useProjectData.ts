@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useTabActive } from '../hooks/useTabActive'
-import { fetchGit, fetchProjectFiles, fetchProjectSessions, fetchTask, fetchTasks } from '../api/client'
+import { fetchFileIndex, fetchGit, fetchProjectSessions, fetchTask, fetchTasks } from '../api/client'
 import { reasonOf } from '../components/styles'
-import type { FilesResponse, GitHistory, ProjectSession, TaskDetail, TaskRow } from '../types'
+import type { FileIndex, GitHistory, ProjectSession, TaskDetail, TaskRow } from '../types'
 
 /** 칸 내용은 세션이 일하는 대로 바뀌므로 자주 묻는다. 요청마다 수십 ms 다. */
 const REFRESH_MS = 5000
+
+/** 파일 수 · .md 목록. 서버가 폴더 전체를 훑어 몇 분 기억하는 값이라 자주 물을 것 없다 */
+const INDEX_MS = 60000
 
 /** 칸 하나의 상태: 아직 모름(null) · 내용 · 거절 이유. */
 export type Slot<T> = { data: T | null; error: string | null }
@@ -52,7 +55,7 @@ function useSlot<T>() {
 }
 
 /** 몇 초마다 부른다. 브라우저 탭이 가려져 있으면 건너뛴다 (보는 사람이 없다). */
-function usePolling(load: () => void) {
+export function usePolling(load: () => void, every = REFRESH_MS) {
   const active = useTabActive()
   useEffect(() => {
     if (!active) return // 숨겨진 탭 — 다시 보이면 곧바로 한 번 읽는다
@@ -60,36 +63,38 @@ function usePolling(load: () => void) {
       if (!document.hidden) load()
     }
     const first = window.setTimeout(load, 0)
-    const timer = window.setInterval(tick, REFRESH_MS)
+    const timer = window.setInterval(tick, every)
     document.addEventListener('visibilitychange', tick)
     return () => {
       window.clearTimeout(first)
       window.clearInterval(timer)
       document.removeEventListener('visibilitychange', tick)
     }
-  }, [load, active])
+  }, [load, active, every])
 }
 
 /**
- * 한 프로젝트의 네 칸(파일 · 세션 · 할 일 · git)을 몇 초마다 읽는다.
+ * 한 프로젝트의 칸(세션 · 할 일 · git)을 몇 초마다, 파일 색인(파일 수 · .md 목록)은 1분마다 읽는다.
+ * 파일 트리는 펼친 폴더만 FileTree 가 따로 받는다.
  * 프로젝트가 바뀌면 부르는 쪽이 key 로 다시 마운트하므로 이전 내용이 섞이지 않는다.
  * 칸마다 받아 오는 대로 그린다 — 다 기다리면 가장 느린 칸(세션: claude 에 켜짐/꺼짐을 묻는다,
  * 첫 호출은 몇 초)이 나머지를 붙잡았다.
  */
 export function useProjectData(key: string) {
-  const [files, putFiles] = useSlot<FilesResponse>()
+  const [files, putFiles] = useSlot<FileIndex>()
   const [sessions, putSessions] = useSlot<ProjectSession[]>()
   const [tasks, putTasks] = useSlot<TaskRow[]>()
   const [git, putGit] = useSlot<GitHistory>()
 
   const load = useCallback(() => {
     const always = () => true // key 가 바뀌면 다시 마운트되므로 낡은 응답이 남지 않는다
-    putFiles(fetchProjectFiles(key), always)
     putSessions(fetchProjectSessions(key), always)
     putTasks(fetchTasks(key), always)
     putGit(fetchGit(key), always)
-  }, [key, putFiles, putSessions, putTasks, putGit])
+  }, [key, putSessions, putTasks, putGit])
   usePolling(load)
+  const loadIndex = useCallback(() => putFiles(fetchFileIndex(key), () => true), [key, putFiles])
+  usePolling(loadIndex, INDEX_MS)
 
   return { files, sessions, tasks, git, reload: load }
 }

@@ -184,6 +184,17 @@ def test_정리_문서는_항목과_이_작업에서_바뀐_파일을_준다(cli
 # --- 왼쪽: 파일 · 세션 ---
 
 
+def tree(client, key, *dirs) -> dict:
+    """펼친 폴더들(맨 위 포함)의 줄 — 경로 → 줄. 폴더 줄은 kind 가 folder."""
+    params = [("dir", "")] + [("dir", d) for d in dirs]
+    out = client.get(f"/api/projects/{key}/files", params=params).json()["folders"]
+    rows = {}
+    for listing in out.values():
+        rows.update({f["path"]: {**f, "kind": "folder"} for f in listing["folders"]})
+        rows.update({f["path"]: {**f, "kind": "file"} for f in listing["files"]})
+    return rows
+
+
 def test_파일은_추적_중과_새_파일과_git_제외_파일을_보인다(client, env):
     key = add(client, env)
     (env["repo"] / "src" / "new.py").write_text("n", encoding="utf-8")
@@ -192,9 +203,16 @@ def test_파일은_추적_중과_새_파일과_git_제외_파일을_보인다(cl
     store.append_activity(key, {"op": "create", "path": "src/new.py", "task": "T-2"})
     store.append_activity(key, {"op": "modify", "path": "src/new.py", "task": "T-5"})
     store.append_activity(key, {"op": "modify", "path": "src/new.py", "task": None})
-    out = client.get(f"/api/projects/{key}/files").json()
-    rows = {f["path"]: f for f in out["files"]}
-    assert ".gitignore" in rows and "src/a.py" in rows and "한글 파일.md" in rows
+    top = tree(client, key)
+    assert set(top) == {
+        ".gitignore",
+        "secret.txt",
+        "한글 파일.md",
+        "src",
+    }  # 펼치지 않은 폴더는 안을 안 준다
+    assert top["src"]["kind"] == "folder"
+    rows = tree(client, key, "src")
+    assert "src/a.py" in rows
     # 이 PC 의 작업 폴더를 보므로 git 에 올리지 않는 파일도 보인다 — 흐리게 보이게 표시만
     assert rows["secret.txt"]["ignored"] is True and "ignored" not in rows["src/a.py"]
     new = rows["src/new.py"]
@@ -202,7 +220,7 @@ def test_파일은_추적_중과_새_파일과_git_제외_파일을_보인다(cl
     assert "changes" not in rows["src/a.py"]
 
 
-def test_git_제외_폴더_중_의존성_캐시_다른_저장소는_들어가지_않는다(client, env):
+def test_git_제외_폴더_중_의존성_캐시_작업용_복사본은_보이지_않는다(client, env):
     repo = env["repo"]
     (repo / ".gitignore").write_text(
         "*.env\nlogs/\nnode_modules/\n.claude/\npkg.egg-info/\n", "utf-8"
@@ -221,15 +239,26 @@ def test_git_제외_폴더_중_의존성_캐시_다른_저장소는_들어가지
         (repo / path).write_text("x", encoding="utf-8")
     (repo / ".claude" / "worktrees" / "bg" / ".git").write_text("gitdir: x", encoding="utf-8")
     key = add(client, env)
-    ignored = {
-        f["path"]
-        for f in client.get(f"/api/projects/{key}/files").json()["files"]
-        if f.get("ignored")
+    rows = tree(client, key, "logs", "logs/old", ".claude", ".claude/worktrees")
+    ignored = {p for p, r in rows.items() if r.get("ignored")}
+    # 제외 폴더는 폴더에 한 번, 그 안의 것도 제외로 (화면은 바깥이 제외면 되풀이해 붙이지 않는다)
+    assert ignored == {
+        "a.env",
+        "logs",
+        "logs/app.log",
+        "logs/old",
+        "logs/old/1.log",
+        ".claude",
+        ".claude/settings.local.json",
+        ".claude/worktrees",
     }
-    assert ignored == {"a.env", "logs/app.log", "logs/old/1.log", ".claude/settings.local.json"}
+    assert not any(
+        p.startswith(("node_modules", "pkg.egg-info", "logs/__pycache__", ".claude/worktrees/"))
+        for p in rows
+    )
 
 
-def test_git_제외_폴더가_안쪽_독립_저장소면_그_파일은_보이고_git_폴더는_빠진다(client, env):
+def test_안쪽_독립_저장소는_그_저장소의_규칙으로_보이고_git_폴더는_빠진다(client, env):
     """공개 저장소 안에 따로 둔 비공개 문서 저장소 — `.git` 이 폴더다.
     작업용 복사본(`.git` 이 파일)은 위 시험처럼 계속 빠진다."""
     repo = env["repo"]
@@ -237,26 +266,87 @@ def test_git_제외_폴더가_안쪽_독립_저장소면_그_파일은_보이고
     private = repo / ".private"
     (private / "notes").mkdir(parents=True)
     git("init", "-q", cwd=private)
+    (private / ".gitignore").write_text("draft.md\n", "utf-8")
     (private / "가이드.md").write_text("x", encoding="utf-8")
+    (private / "draft.md").write_text("x", encoding="utf-8")
     (private / "notes" / "a.md").write_text("x", encoding="utf-8")
+    nested = repo / "nested"  # 제외하지 않은 안쪽 저장소도 폴더로 보인다
+    nested.mkdir()
+    git("init", "-q", cwd=nested)
+    (nested / "x.txt").write_text("x", encoding="utf-8")
     key = add(client, env)
-    ignored = {
-        f["path"]
-        for f in client.get(f"/api/projects/{key}/files").json()["files"]
-        if f.get("ignored")
-    }
-    assert ignored == {".private/가이드.md", ".private/notes/a.md"}
+    rows = tree(client, key, ".private", ".private/notes", "nested")
+    assert {".private/가이드.md", ".private/notes/a.md", ".private/draft.md"} <= set(rows)
+    assert rows["nested/x.txt"]["kind"] == "file"
+    assert not any(p.endswith(".git") for p in rows)
+    # 그 폴더에서 git 에 묻는다 — 안쪽 저장소는 그 저장소의 .gitignore 를 따른다
+    assert rows["nested/x.txt"].get("ignored") is None
+    assert rows[".private/draft.md"]["ignored"] is True
 
 
-def test_git_이_아니면_폴더를_훑되_무거운_폴더는_건너뛴다(client, env):
+def test_git_이_아니면_폴더를_그대로_보이되_무거운_폴더는_건너뛴다(client, env):
     plain = env["tmp"] / "plain"
     (plain / "node_modules" / "x").mkdir(parents=True)
     (plain / "node_modules" / "x" / "i.js").write_text("", encoding="utf-8")
     (plain / "docs").mkdir()
     (plain / "docs" / "a.md").write_text("", encoding="utf-8")
     key = client.post("/api/projects", json={"root": str(plain)}).json()["key"]
-    out = client.get(f"/api/projects/{key}/files").json()
-    assert [f["path"] for f in out["files"]] == ["docs/a.md"]
+    rows = tree(client, key, "docs")
+    assert set(rows) == {"docs", "docs/a.md"} and not any(r.get("ignored") for r in rows.values())
+
+
+def test_큰_폴더가_있어도_옆_폴더와_안쪽_저장소의_제외가_보인다(client, env, monkeypatch):
+    """KKU: git 이 아닌 폴더 안에 파일 10만 개짜리 저장소와 notes 가 나란히 있었다 —
+    폴더 전체를 이름순으로 훑다가 상한에 걸려 notes 가 빠졌다. 이제는 폴더째 받는다."""
+    plain = env["tmp"] / "kku"
+    big = plain / "big"
+    (big / "deep").mkdir(parents=True)
+    git("init", "-q", cwd=big)
+    (big / ".gitignore").write_text("*.log\n", "utf-8")
+    for i in range(5):
+        (big / "deep" / f"{i}.php").write_text("", encoding="utf-8")
+    (big / "x.log").write_text("", encoding="utf-8")
+    (plain / "notes").mkdir()
+    (plain / "notes" / "조사.md").write_text("", encoding="utf-8")
+    monkeypatch.setattr(records, "FOLDER_LIMIT", 3)
+    key = client.post("/api/projects", json={"root": str(plain)}).json()["key"]
+    rows = tree(client, key, "notes", "big")
+    assert "notes/조사.md" in rows
+    assert rows["big/x.log"]["ignored"] is True  # git 이 아닌 폴더 안의 저장소도 그 규칙으로
+    out = client.get(f"/api/projects/{key}/files", params={"dir": "big/deep"}).json()
+    deep = out["folders"]["big/deep"]
+    assert deep["truncated"] is True and len(deep["files"]) == 3  # 그 폴더만 잘린다
+    index = client.get(f"/api/projects/{key}/files/index").json()
+    assert index["count"] == 8 and index["md"] == ["notes/조사.md"]
+
+
+def test_폴더_밖이나_없는_폴더는_주지_않는다(client, env):
+    key = add(client, env)
+    params = [("dir", d) for d in ("", "..", "../other", "없음", "src/a.py")]
+    out = client.get(f"/api/projects/{key}/files", params=params).json()["folders"]
+    assert set(out) == {""}
+
+
+def test_폴더_목록은_항목이_바뀌면_바로_다시_읽는다(client, env):
+    key = add(client, env)
+    assert "src/b.py" not in tree(client, key, "src")
+    (env["repo"] / "src" / "b.py").write_text("b", encoding="utf-8")
+    assert "src/b.py" in tree(client, key, "src")
+
+
+def test_파일_색인은_md_목록과_파일_수를_주고_잠깐_기억한다(client, env, monkeypatch):
+    (env["repo"] / "docs").mkdir()
+    (env["repo"] / "docs" / "A.MD").write_text("", encoding="utf-8")
+    key = add(client, env)
+    index = client.get(f"/api/projects/{key}/files/index").json()
+    assert index == {"count": 3, "md": ["docs/A.MD"], "mdTruncated": False}
+    (env["repo"] / "b.md").write_text("", encoding="utf-8")
+    assert client.get(f"/api/projects/{key}/files/index").json()["count"] == 3  # 기억한 것
+    monkeypatch.setattr(records, "INDEX_SECONDS", -1)
+    # 오래됐으면 기억한 것을 바로 주고 뒤에서 다시 훑는다 — 큰 폴더는 몇 초 걸린다
+    assert client.get(f"/api/projects/{key}/files/index").json()["count"] == 3
+    records._index_threads[key].join(10)
+    assert client.get(f"/api/projects/{key}/files/index").json()["count"] == 4
 
 
 def test_세션은_작업_폴더로_자동_소속이고_기록이_없으면_훅의_시각을_쓴다(client, env):
@@ -689,32 +779,12 @@ def test_작업_트리의_이름_바꾸기도_옛_이름을_건너뛴다(client,
     assert [c["path"] for c in changes] == ["src/b.py"]  # 옛 이름 조각이 상태 줄로 끼지 않는다
 
 
-def test_안쪽의_다른_저장소는_파일_목록에_끼지_않는다(client, env):
-    key = add(client, env)
-    nested = env["repo"] / "nested"
-    nested.mkdir()
-    git("init", "-q", cwd=nested)
-    (nested / "x.txt").write_text("x", encoding="utf-8")
-    paths = [f["path"] for f in client.get(f"/api/projects/{key}/files").json()["files"]]
-    assert not any(p.endswith("/") for p in paths)
-
-
 def test_생긴_작업은_첫_만들기_기록이다(client, env):
     key = add(client, env)
     store.append_activity(key, {"op": "create", "path": "src/a.py", "task": "T-1"})
     store.append_activity(key, {"op": "create", "path": "src/a.py", "task": "T-2"})
-    rows = client.get(f"/api/projects/{key}/files").json()["files"]
-    a = next(f for f in rows if f["path"] == "src/a.py")
+    a = tree(client, key, "src")["src/a.py"]
     assert (a["createdTask"], a["lastTask"]) == ("T-1", "T-2")
-
-
-def test_git_이_아닌_큰_폴더는_잘렸다고_알린다(client, env, monkeypatch):
-    for i in range(3):
-        (env["other"] / f"{i}.txt").write_text("", encoding="utf-8")
-    key = client.post("/api/projects", json={"root": str(env["other"])}).json()["key"]
-    monkeypatch.setattr(records, "WALK_LIMIT", 2)
-    out = client.get(f"/api/projects/{key}/files").json()
-    assert out["truncated"] is True and len(out["files"]) == 2
 
 
 def test_변경_기록은_파일이_바뀔_때만_다시_읽는다(client, env, monkeypatch):
@@ -723,13 +793,13 @@ def test_변경_기록은_파일이_바뀔_때만_다시_읽는다(client, env, 
     calls = []
     real = store.read_activity
     monkeypatch.setattr(store, "read_activity", lambda k: calls.append(k) or real(k))
-    client.get(f"/api/projects/{key}/files")
-    client.get(f"/api/projects/{key}/files")
+    tree(client, key, "src")
+    tree(client, key, "src")
     assert len(calls) == 1
     store.append_activity(key, {"op": "modify", "path": "src/a.py", "task": "T-1"})
-    rows = client.get(f"/api/projects/{key}/files").json()["files"]
+    rows = tree(client, key, "src")
     assert len(calls) == 2
-    assert next(x for x in rows if x["path"] == "src/a.py")["changes"] == 2
+    assert rows["src/a.py"]["changes"] == 2
 
 
 def test_깨진_할_일_파일도_목록이_죽지_않고_문제로_보인다(client, env):

@@ -245,10 +245,28 @@ export interface FileRow {
   ignored?: boolean
 }
 
-export interface FilesResponse {
-  /** git 이 아닌 큰 폴더를 훑다가 상한에서 멈췄으면 true */
-  truncated: boolean
+/** [파일] 의 폴더 줄 */
+export interface FolderRow {
+  path: string
+  /** git 에 올리지 않는 폴더 (logs/ · .claude/ 등) */
+  ignored?: boolean
+}
+/** 폴더 하나의 바로 아래 */
+export interface FolderListing {
+  folders: FolderRow[]
   files: FileRow[]
+  /** 이 폴더에 바로 든 항목이 상한(5,000)을 넘어 앞부분만 */
+  truncated: boolean
+}
+/** 펼친 폴더들 (경로 → 바로 아래). 맨 위는 '' . 없어진 폴더는 빠진다 */
+export interface FoldersResponse {
+  folders: Record<string, FolderListing>
+}
+/** 폴더 전체의 파일 수와 .md 목록 (탭의 숫자 · 문서 속 링크 찾기). 몇 분 기억한 값일 수 있다 */
+export interface FileIndex {
+  count: number
+  md: string[]
+  mdTruncated: boolean
 }
 
 export interface ProjectSession {

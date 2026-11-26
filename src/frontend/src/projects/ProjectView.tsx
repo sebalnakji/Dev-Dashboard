@@ -128,11 +128,8 @@ export function ProjectView({ project, offline }: { project: ProjectRow; offline
 
   const highlight = useMemo(() => new Set(shownDoc?.files.map((f) => f.path) ?? []), [shownDoc])
   const known = useMemo(() => new Set(list?.map((t) => t.number) ?? []), [list])
-  // 문서 속 [[위키링크]] 를 찾을 곳
-  const mdFiles = useMemo(
-    () => files.data?.files.map((f) => f.path).filter((p) => /\.md$/i.test(p)) ?? [],
-    [files.data],
-  )
+  // 문서 속 [[위키링크]] 를 찾을 곳 (서버가 폴더 전체를 훑은 .md 목록)
+  const mdFiles = useMemo(() => files.data?.md ?? [], [files.data])
 
   // 다른 보기에서 할 일 번호를 누르면 [할 일] 보기로 넘어가 연다 (같은 번호가 둘이면 목록 순 첫째)
   const openTask = useCallback(
@@ -179,7 +176,7 @@ export function ProjectView({ project, offline }: { project: ProjectRow; offline
   const tabs: { name: ProjectViewName; label: string; count?: number; fresh?: boolean }[] = [
     { name: 'sessions', label: '세션', count: sessions.data?.length },
     { name: 'tasks', label: '작업', count: doing },
-    { name: 'files', label: '파일', count: files.data?.files.length },
+    { name: 'files', label: '파일', count: files.data?.count },
     { name: 'git', label: '깃', count: newCommits, fresh: true },
   ]
   const countTitle: Record<ProjectViewName, string> = {
@@ -240,20 +237,9 @@ export function ProjectView({ project, offline }: { project: ProjectRow; offline
 
       {view === 'files' && (
         <Split
-          note={files.data?.truncated ? '파일이 많아 앞부분만 보입니다' : undefined}
           wide={selectedPath != null && !/\.md$/i.test(selectedPath)}
           left={
-            <SlotView slot={files} offline={offline}>
-              {(f) => (
-                <FileTree
-                  projectKey={project.key}
-                  files={f.files}
-                  highlight={highlight}
-                  selected={selectedPath}
-                  onSelect={selectPath}
-                />
-              )}
-            </SlotView>
+            <FileTree projectKey={project.key} highlight={highlight} selected={selectedPath} onSelect={selectPath} />
           }
           right={
             selectedPath == null ? null : (

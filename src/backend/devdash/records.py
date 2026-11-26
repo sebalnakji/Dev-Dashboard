@@ -39,8 +39,21 @@ import devdash_tasks as tasks
 COMMITS = 50
 """오른쪽 칸에 보이는 최근 커밋 수."""
 
-WALK_LIMIT = 5000
-"""git 이 아닌 폴더를 훑을 때 파일 수 상한. 넘으면 잘렸다고 알린다."""
+FOLDER_LIMIT = 5000
+"""[파일] 에서 폴더 하나에 보이는 항목 수 상한. 넘으면 그 폴더만 잘렸다고 알린다
+(폴더째 받으므로 다른 폴더는 영향이 없다)."""
+
+FOLDER_SECONDS = 120
+"""폴더 하나의 목록을 기억하는 시간. 폴더 안 항목이 바뀌면(폴더의 수정 시각) 바로 다시 읽는다.
+'git 제외' 표시는 .gitignore 를 고쳐도 이 시간 안에 따라온다. 큰 저장소는 git check-ignore 가
+폴더마다 0.25초쯤 걸려(Moodle, 파일 10만 개) 5초마다 묻는 화면에 매번 하지 않는다."""
+
+INDEX_SECONDS = 300
+"""파일 수 · .md 목록(폴더 전체를 훑는다)을 기억하는 시간. 지나면 기억한 것을 주고 뒤에서 다시
+훑는다 — 파일 10만 개 폴더는 8초쯤 걸린다."""
+
+INDEX_MD_LIMIT = 20000
+"""문서 속 링크를 찾을 .md 목록의 상한."""
 
 WALK_SKIP = {
     ".git",
@@ -55,8 +68,7 @@ WALK_SKIP = {
     ".pytest_cache",
     ".mypy_cache",
 }
-"""폴더를 훑을 때 들어가지 않는 의존성 · 빌드 · 캐시 폴더. 파일이 수만 개라 트리가 묻힌다.
-git 이 아닌 폴더와, git 저장소의 git 제외 폴더를 훑을 때 쓴다.
+"""[파일] 에 보이지 않는 의존성 · 빌드 · 캐시 폴더. 파일이 수만 개라 트리가 묻힌다.
 이름 끝이 .egg-info 인 것도 뺀다 (_skip_dir)."""
 
 
@@ -72,39 +84,67 @@ def _worktree(path: str) -> bool:
     return os.path.isfile(os.path.join(path, ".git"))
 
 
-def _ignored_files(root: str) -> tuple[list[str], bool]:
-    """git 제외 파일들 (.env · CLAUDE.local.md · 로컬 DB …). 상한을 넘으면 (앞부분, True).
+def _ignored(folder: str, names: list[str]) -> set[str]:
+    """folder 바로 아래 names(폴더는 끝에 '/') 중 git 이 제외하는 것. git 저장소가 아니면 빈 집합.
 
-    [파일] 보기는 git 이 아니라 이 PC 의 작업 폴더를 보므로 git 에 올리지 않는 파일도 보인다.
-    다만 의존성 · 빌드 · 캐시 폴더(_skip_dir)와 작업용 복사본(_worktree)은
-    들어가지 않는다. 안쪽의 독립 저장소는 들어간다 (그 `.git` 폴더는 _skip_dir 이 뺀다).
-    git 이 알려 주는 제외 폴더 안만 훑으므로 저장소 전체를 다시 훑지 않는다."""
-    listed = _git(
-        root, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"
-    )
-    out: set[str] = set()
-    for entry in (listed or "").split("\0"):
-        if not entry:
-            continue
-        parts = entry.rstrip("/").split("/")
-        if any(_skip_dir(p) for p in parts):
-            continue
-        if not entry.endswith("/"):
-            out.add(entry)
-        elif not _worktree(os.path.join(root, entry)):
-            for dirpath, dirnames, filenames in os.walk(os.path.join(root, entry)):
-                dirnames[:] = [
-                    d
-                    for d in dirnames
-                    if not _skip_dir(d) and not _worktree(os.path.join(dirpath, d))
-                ]
-                rel = os.path.relpath(dirpath, root).replace("\\", "/")
-                out.update(f"{rel}/{f}" for f in filenames)
-                if len(out) >= WALK_LIMIT:
-                    return sorted(out)[:WALK_LIMIT], True
-        if len(out) >= WALK_LIMIT:
-            return sorted(out)[:WALK_LIMIT], True
-    return sorted(out), False
+    그 폴더에서 git 을 부르므로 안쪽의 독립 저장소는 그 저장소의 .gitignore 를 따른다
+    (git 이 아닌 폴더 안에 저장소가 있어도). 이미 추적 중인 파일은 제외로 치지 않는다."""
+    if not names:
+        return set()
+    try:
+        r = subprocess.run(
+            ["git", "--no-optional-locks", "-C", folder, "check-ignore", "--stdin", "-z"],
+            input="\0".join(names).encode("utf-8"),
+            capture_output=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return set()
+    if r.returncode != 0:  # 1: 제외된 것 없음 · 128: git 저장소가 아님
+        return set()
+    return {p for p in r.stdout.decode("utf-8", errors="replace").split("\0") if p}
+
+
+_folder_cache: dict[str, tuple[int, float, dict]] = {}
+_folder_lock = threading.Lock()
+
+
+def _read_folder(full: str) -> dict:
+    """폴더 바로 아래: {"folders": [이름], "files": [이름], "ignored": {이름}, "truncated"}.
+    의존성 · 캐시 폴더(_skip_dir)와 작업용 복사본(_worktree)은 뺀다."""
+    mtime = os.stat(full).st_mtime_ns
+    with _folder_lock:
+        hit = _folder_cache.get(full)
+        if hit and hit[0] == mtime and time.time() - hit[1] < FOLDER_SECONDS:
+            return hit[2]
+    folders: list[str] = []
+    files: list[str] = []
+    with os.scandir(full) as it:
+        for entry in it:
+            try:
+                if entry.is_dir():
+                    if not _skip_dir(entry.name) and not _worktree(entry.path):
+                        folders.append(entry.name)
+                elif entry.is_file():
+                    files.append(entry.name)
+            except OSError:
+                continue
+    folders.sort()
+    files.sort()
+    truncated = len(folders) + len(files) > FOLDER_LIMIT
+    if truncated:
+        files = files[: max(0, FOLDER_LIMIT - len(folders))]
+        folders = folders[:FOLDER_LIMIT]
+    ignored = _ignored(full, [f"{d}/" for d in folders] + files)
+    data = {
+        "folders": folders,
+        "files": files,
+        "ignored": {n.rstrip("/") for n in ignored},
+        "truncated": truncated,
+    }
+    with _folder_lock:
+        _folder_cache[full] = (mtime, time.time(), data)
+    return data
 
 
 def _git(root: str, *args: str) -> str | None:
@@ -432,33 +472,19 @@ def task_detail(key: str, number: int, file: str | None = None) -> dict | None:
 # --- 왼쪽: 파일 구조 ---
 
 
-def _walk(root: str) -> tuple[list[str], bool]:
-    """git 이 아닌 폴더의 파일들 (상대 경로). 상한을 넘으면 (앞부분, True)."""
-    out: list[str] = []
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = sorted(d for d in dirnames if not _skip_dir(d))
-        rel = os.path.relpath(dirpath, root).replace("\\", "/")
-        for f in sorted(filenames):
-            out.append(f if rel == "." else f"{rel}/{f}")
-            if len(out) >= WALK_LIMIT:
-                return out, True
-    return out, False
+def _folder_path(root: str, rel: str) -> str | None:
+    """화면이 보낸 폴더 경로(저장소 기준)를 실제 경로로. 폴더 밖이거나 폴더가 아니면 None.
+    '..' · 정션으로 밖을 가리키면 실제 경로를 풀어 거절한다 (_project_file 과 같다)."""
+    full = os.path.realpath(os.path.join(root, rel))
+    inside = store.same(full) == store.same(root) or store._under(
+        store.same(full), store.same(root)
+    )
+    return full if inside and os.path.isdir(full) else None
 
 
-def files(key: str) -> dict:
-    """왼쪽 파일 칸. 파일마다 생긴 작업 · 최근 작업 · 변경 횟수 (훅의 변경 기록에서만 —
+def _file_stats(key: str) -> dict[str, dict]:
+    """파일마다 생긴 작업 · 최근 작업 · 변경 횟수 (훅의 변경 기록에서만 —
     devdash 이전에 생긴 파일은 기록이 없다)."""
-    root = project(key)["root"]
-    listed = _git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
-    ignored: set[str] = set()
-    if listed is not None:
-        # 끝이 '/' 인 것은 안쪽의 다른 저장소(폴더)라 파일 목록에서 뺀다
-        tracked = {p for p in listed.split("\0") if p and not p.endswith("/")}
-        extra, truncated = _ignored_files(root)
-        ignored = set(extra) - tracked
-        paths = sorted(tracked | ignored)
-    else:
-        paths, truncated = _walk(root)
     stats: dict[str, dict] = {}
     for rec in _activity(key):
         p = rec.get("path")
@@ -469,14 +495,86 @@ def files(key: str) -> dict:
         if rec.get("op") == "create" and s["createdTask"] is None:
             s["createdTask"] = rec.get("task")
         s["lastTask"] = rec.get("task") or s["lastTask"]
-    return {
-        "truncated": truncated,
-        # ignored: git 에 올리지 않는 파일 (화면이 흐리게 'git 제외'로 보인다)
-        "files": [
-            {"path": p, **({"ignored": True} if p in ignored else {}), **stats.get(p, {})}
-            for p in paths
-        ],
-    }
+    return stats
+
+
+def folders(key: str, dirs: list[str]) -> dict:
+    """왼쪽 파일 칸: 화면이 펼친 폴더들의 바로 아래 (폴더째 받아 파일이 몇 개든 전부 보인다).
+
+    dirs 는 저장소 기준 폴더 경로 ("" 는 맨 위). 없어진 폴더 · 폴더 밖은 빠진다.
+    git 에 올리지 않는 것은 ignored (화면이 흐리게 '깃 제외'로 보인다). 이 PC 의 작업 폴더를
+    보므로 git 이 모르는 새 파일 · 제외 파일도 보인다."""
+    root = project(key)["root"]
+    stats = _file_stats(key)
+    out: dict[str, dict] = {}
+    for rel in dict.fromkeys(d.strip("/") for d in dirs):
+        full = _folder_path(root, rel)
+        if full is None:
+            continue
+        try:
+            data = _read_folder(full)
+        except OSError:
+            continue
+        prefix = f"{rel}/" if rel else ""
+        ignored = data["ignored"]
+        out[rel] = {
+            "folders": [
+                {"path": prefix + n, **({"ignored": True} if n in ignored else {})}
+                for n in data["folders"]
+            ],
+            "files": [
+                {
+                    "path": prefix + n,
+                    **({"ignored": True} if n in ignored else {}),
+                    **stats.get(prefix + n, {}),
+                }
+                for n in data["files"]
+            ],
+            "truncated": data["truncated"],
+        }
+    return {"folders": out}
+
+
+_index_cache: dict[str, tuple[float, dict]] = {}
+_index_threads: dict[str, threading.Thread] = {}
+_index_lock = threading.Lock()
+
+
+def file_index(key: str) -> dict:
+    """폴더 전체의 파일 수와 .md 목록 — [파일] 탭의 숫자와 문서 속 링크 찾기.
+    폴더 전체를 훑으므로 기억해 두고, INDEX_SECONDS 가 지나면 기억한 것을 주며 뒤에서 다시 훑는다
+    (한 프로젝트에 하나씩). 처음 한 번만 그 자리에서 훑는다."""
+    hit = _index_cache.get(key)
+    if hit is None:
+        return _build_index(key)
+    if time.time() - hit[0] >= INDEX_SECONDS:
+        with _index_lock:
+            running = _index_threads.get(key)
+            if running is None or not running.is_alive():
+                thread = threading.Thread(target=_build_index, args=(key,), daemon=True)
+                _index_threads[key] = thread
+                thread.start()
+    return hit[1]
+
+
+def _build_index(key: str) -> dict:
+    root = project(key)["root"]
+    count, md, truncated = 0, [], False
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [
+            d for d in dirnames if not _skip_dir(d) and not _worktree(os.path.join(dirpath, d))
+        ]
+        count += len(filenames)
+        rel = os.path.relpath(dirpath, root).replace("\\", "/")
+        for f in filenames:
+            if f.lower().endswith(".md"):
+                if len(md) >= INDEX_MD_LIMIT:
+                    truncated = True
+                    break
+                md.append(f if rel == "." else f"{rel}/{f}")
+    data = {"count": count, "md": sorted(md), "mdTruncated": truncated}
+    _index_cache[key] = (time.time(), data)
+    return data
 
 
 def file_history(key: str, path: str) -> list[dict]:

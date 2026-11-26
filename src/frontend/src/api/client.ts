@@ -10,7 +10,8 @@ import type {
   FolderChoice,
   FileDiff,
   FileHistoryRow,
-  FilesResponse,
+  FileIndex,
+  FoldersResponse,
   GitHistory,
   PcMemory,
   ProjectCandidate,
@@ -120,7 +121,10 @@ const project = (key: string) => `/api/projects/${encodeURIComponent(key)}`
 
 export const fetchProjects = () => getJson<ProjectRow[]>('/api/projects')
 export const fetchCandidates = () => getJson<ProjectCandidate[]>('/api/projects/candidates')
-export const fetchProjectFiles = (key: string) => getJson<FilesResponse>(`${project(key)}/files`)
+/** 펼친 폴더들의 바로 아래 (맨 위는 '') */
+export const fetchFileFolders = (key: string, dirs: string[]) =>
+  getJson<FoldersResponse>(`${project(key)}/files?${dirs.map((d) => `dir=${encodeURIComponent(d)}`).join('&')}`)
+export const fetchFileIndex = (key: string) => getJson<FileIndex>(`${project(key)}/files/index`)
 export const fetchProjectSessions = (key: string) =>
   getJson<ProjectSession[]>(`${project(key)}/sessions`)
 export const fetchSessionChoices = (key: string) =>

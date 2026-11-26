@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import os
 import threading
+from typing import Annotated
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
@@ -138,8 +139,15 @@ def pick_folder() -> JSONResponse:
 
 
 @router.get("/{key}/files")
-def files(key: str) -> JSONResponse:
-    return _check(key, need_folder=True) or JSONResponse(records.files(key))
+def files(key: str, dir: Annotated[list[str] | None, Query()] = None) -> JSONResponse:  # noqa: A002
+    """펼친 폴더들(dir, 여러 번)의 바로 아래. 맨 위는 빈 문자열 (없으면 맨 위만)."""
+    return _check(key, need_folder=True) or JSONResponse(records.folders(key, dir or [""]))
+
+
+@router.get("/{key}/files/index")
+def file_index(key: str) -> JSONResponse:
+    """파일 수와 .md 목록 (탭의 숫자 · 문서 속 링크 찾기)."""
+    return _check(key, need_folder=True) or JSONResponse(records.file_index(key))
 
 
 @router.get("/{key}/file-history")
