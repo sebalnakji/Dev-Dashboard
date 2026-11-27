@@ -459,3 +459,30 @@ export interface PcAbilities {
   terminal: boolean
   pickFolder: boolean
 }
+
+/** 화면분할 탭의 화면 하나. 칸은 늘 넷 — 2분할이면 앞의 둘만 보인다 */
+export interface Screen {
+  id: string
+  name: string
+  layout: 2 | 4
+  /** 칸마다 세션의 목록 번호 (비었으면 null) */
+  cells: (string | null)[]
+}
+export interface ScreensResponse {
+  screens: Screen[]
+  /** 방금 만든 화면 (추가할 때만) */
+  made?: Screen
+}
+/** 화면분할 칸에 쓸 세션 줄 (백그라운드 세션만) */
+export interface ScreenSession {
+  id: string
+  name: string
+  group: string | null
+  order: number | null
+  state: SessionState
+  activity: 'working' | 'blocked' | 'done' | null
+  tokens: number | null
+  compactions: number
+  /** 파일 · 할 일 링크가 갈 프로젝트. 속하지 않으면 null (링크는 글자로) */
+  project: string | null
+}

@@ -699,6 +699,37 @@ def _home_project(rows: list[dict]) -> dict[str, str | None]:
     return {r["id"]: roots.get(store.same(main(r.get("cwd") or "") or "")) for r in rows}
 
 
+def session_projects(rows: list[dict]) -> dict[str, str | None]:
+    """세션마다 속한 프로젝트 키 — 사람이 정한 것(row["project"], 빈 문자열은 '넣지 않음')이 있으면
+    그것, 없으면 작업 폴더로. 등록된 프로젝트가 아니면 None. 화면분할 칸의 링크가 갈 곳이다."""
+    home = _home_project(rows)
+    out: dict[str, str | None] = {}
+    for r in rows:
+        chosen = r.get("project")
+        key = home[r["id"]] if chosen is None else (chosen or None)
+        out[r["id"]] = key if key and project(key) else None
+    return out
+
+
+def work_stamp(key: str) -> tuple:
+    """작업 상자(chat_work)가 읽는 것들의 지금 상태 — 변경 기록 · 스냅샷 기록 · 할 일 파일.
+    같으면 같은 대화에 붙는 작업 상자도 같다 (대화 응답을 기억할 때 쓴다)."""
+    folder = store.project_dir(key)
+    stamp: list = []
+    for p in (folder / "activity.jsonl", snap.log_path(folder)):
+        try:
+            st = p.stat()
+            stamp.append((st.st_size, st.st_mtime_ns))
+        except OSError:
+            stamp.append(None)
+    tasks_dir = folder / "tasks"
+    if tasks_dir.is_dir():
+        stamp.append(
+            tuple(sorted((p.name, p.stat().st_mtime_ns) for p in tasks_dir.glob("T-*.md")))
+        )
+    return tuple(stamp)
+
+
 def _membership(key: str, rows: list[dict]) -> dict[str, tuple[bool, bool]]:
     """세션마다 (이 프로젝트 소속인가, 작업 폴더로 정해진 자동 소속인가).
     사람이 정한 것(row["project"])이 있으면 그것을 따르고, 없으면 작업 폴더를 따른다."""

@@ -65,3 +65,10 @@ export function lastView(): ProjectViewName {
   return VIEWS.includes(value as ProjectViewName) ? (value as ProjectViewName) : 'tasks'
 }
 export const rememberView = (view: ProjectViewName) => write('projectView', view)
+
+/** 화면분할 탭으로 돌아오면 마지막에 보던 화면을 다시 연다. */
+export function lastScreen(): string | null {
+  const value = read('lastScreen')
+  return typeof value === 'string' ? value : null
+}
+export const rememberScreen = (id: string) => write('lastScreen', id)

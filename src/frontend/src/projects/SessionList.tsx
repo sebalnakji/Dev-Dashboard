@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { fetchSessionChoices, postSessionAction, saveProjectSessions } from '../api/client'
 import { ContextMeter } from '../components/ContextMeter'
 import { Modal } from '../components/Modal'
+import { statusOf } from '../components/sessionStatus'
 import { BUTTON, NOTICE, agoIso, reasonOf } from '../components/styles'
 import { useNow } from '../hooks/useNow'
 import type { ActionResult, ProjectSession, SessionChoice } from '../types'
@@ -16,19 +17,6 @@ const REPLY_WINDOW = 20
  * 섞여 '문제가 생겼다'로 읽히지 않게 더 선명한 빨강을 따로 쓴다. 바탕 대비 5.3:1 · hover 4.5:1
  */
 const FRESH = 'text-[#f06368]'
-
-/** 확인이 필요할 때의 색. 위험(주황)과 구분되는 노랑 */
-const BLOCKED = 'text-[#e3b75f]'
-
-/** 세션이 지금 무엇을 하나: 점 색 · 글 · 글 색 */
-function statusOf(s: ProjectSession): { dot: string; label: string; text: string } {
-  if (s.state === 'starting') return { dot: 'bg-gray-600 animate-pulse', label: '연결 중', text: 'text-gray-500' }
-  if (s.state === 'stopping') return { dot: 'bg-gray-600 animate-pulse', label: '해제 중', text: 'text-gray-500' }
-  if (s.state === 'off') return { dot: 'bg-gray-700', label: '꺼짐', text: 'text-gray-600' }
-  if (s.activity === 'working') return { dot: 'bg-accent animate-pulse', label: '답변 중', text: 'text-accent' }
-  if (s.activity === 'blocked') return { dot: 'bg-[#e3b75f]', label: '확인 필요', text: BLOCKED }
-  return { dot: 'bg-on', label: '쉬는 중', text: 'text-gray-500' }
-}
 
 /**
  * 마지막으로 본 뒤 끝난 답의 수. 처음 보는 세션 · 지금 보고 있는 세션은 0.

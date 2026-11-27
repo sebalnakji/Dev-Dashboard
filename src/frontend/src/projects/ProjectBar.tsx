@@ -137,8 +137,8 @@ export function ProjectBar({
   )
 }
 
-/** ⋮ 를 누르면 상자 아래에 뜨는 작은 메뉴. 바깥을 누르거나 Esc 로 닫힌다. */
-function Menu({
+/** ⋮ 를 누르면 상자 아래에 뜨는 작은 메뉴. 바깥을 누르거나 Esc 로 닫힌다. 화면분할의 화면 줄도 쓴다. */
+export function Menu({
   items,
   onClose,
   footer,

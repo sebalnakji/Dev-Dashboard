@@ -25,6 +25,8 @@ import type {
   TaskFileDiff,
   TaskRow,
   PcAbilities,
+  ScreenSession,
+  ScreensResponse,
 } from '../types'
 
 async function getJson<T>(path: string): Promise<T> {
@@ -204,3 +206,16 @@ export const fetchTurnDiff = (key: string, prompt: string, path: string, full: b
   getJson<TaskFileDiff>(
     `${project(key)}/turns/${encodeURIComponent(prompt)}/diff?${new URLSearchParams({ path, full: String(full) })}`,
   )
+
+// --- 화면분할 ---
+
+const screen = (id: string) => `/api/screens/${encodeURIComponent(id)}`
+export const fetchScreens = () => getJson<ScreensResponse>('/api/screens')
+export const fetchScreenSessions = () => getJson<ScreenSession[]>('/api/screens/sessions')
+export const addScreen = (name: string) => send<ScreensResponse>('POST', '/api/screens', { name })
+export const patchScreen = (id: string, change: { name?: string; layout?: 2 | 4 }) =>
+  send<ScreensResponse>('PATCH', screen(id), change)
+export const setScreenCell = (id: string, index: number, session: string | null) =>
+  send<ScreensResponse>('PUT', `${screen(id)}/cells/${index}`, { session })
+export const removeScreen = (id: string) => send<ScreensResponse>('DELETE', screen(id))
+export const saveScreenOrder = (ids: string[]) => send<ScreensResponse>('PUT', '/api/screens/order', { ids })

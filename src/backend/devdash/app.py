@@ -20,6 +20,7 @@ from devdash.api import guard
 from devdash.api.claude_routes import router as claude_router
 from devdash.api.project_routes import router as project_router
 from devdash.api.routes import router
+from devdash.api.screen_routes import router as screen_router
 from devdash.claude.service import SessionService
 from devdash.collect.scheduler import Scheduler
 from devdash.config import load_config
@@ -73,6 +74,7 @@ def create_app(config_path: Path | None = None) -> FastAPI:
     app.include_router(router)
     app.include_router(claude_router)
     app.include_router(project_router)
+    app.include_router(screen_router)
 
     # 빌드된 프론트엔드를 백엔드가 직접 서빙한다. API 라우터 뒤에 "/" 로 붙이므로
     # /api/* 는 위에서 먼저 잡히고 나머지는 정적 파일로 간다. 화면은 해시 라우팅이라

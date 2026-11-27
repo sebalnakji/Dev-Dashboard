@@ -10,6 +10,7 @@ import { FileTree } from './FileTree'
 import { langOfPath } from './lang'
 import { MarkdownView } from './MarkdownView'
 import { CommitView, GitList } from './GitView'
+import { NAV, savedNav, type Nav } from './nav'
 import { gitSeen, lastView, rememberGitSeen, rememberView, type ProjectViewName } from './remember'
 import { SessionList, SessionPicker } from './SessionList'
 import { TaskDoc, TaskList } from './TaskPanels'
@@ -324,26 +325,6 @@ export function ProjectView({ project, offline }: { project: ProjectRow; offline
       {picking && <SessionPicker projectKey={project.key} onClose={() => setPicking(false)} onSaved={reload} />}
     </div>
   )
-}
-
-/** 뒤로 가기용 화면 하나. 브라우저 방문 기록의 state 에 넣는다 — 주소(해시)는 프로젝트까지만 쓴다. */
-interface Nav {
-  key: string
-  view: ProjectViewName
-  chosenFile: string | null
-  selectedPath: string | null
-  selectedSession: string | null
-  selectedCommit: string | null
-  /** 오른쪽 칸의 스크롤 위치 */
-  scroll: number
-}
-
-const NAV = 'devdashNav'
-
-/** 지금 방문 기록 칸에 적힌 이 프로젝트의 화면 (없거나 다른 프로젝트 것이면 null) */
-function savedNav(key: string): Nav | null {
-  const nav = (window.history.state as Record<string, unknown> | null)?.[NAV] as Nav | undefined
-  return nav && nav.key === key ? nav : null
 }
 
 /** 오른쪽 칸(보기마다 하나)의 스크롤 위치 */

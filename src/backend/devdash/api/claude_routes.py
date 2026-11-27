@@ -9,6 +9,8 @@ FastAPI 가 스레드에서 돌려 이벤트 루프(서버 수집 · SSE)를 막
 from __future__ import annotations
 
 import os
+import threading
+from collections import OrderedDict
 from collections.abc import Callable
 
 from fastapi import APIRouter, Request
@@ -73,11 +75,37 @@ def session_chat(
     path = chat.transcript(conversation)
     if path is None:
         return JSONResponse({"messages": [], "more": False})
+    project = project if project and records.project(project) else None
+    try:
+        st = path.stat()
+    except OSError:
+        return JSONResponse({"messages": [], "more": False})
+    stamp = (str(path), st.st_size, st.st_mtime_ns, limit, project)
+    stamp += (records.work_stamp(project),) if project else ()
+    with _chat_lock:
+        hit = _chat_cache.get(stamp)
+        if hit is not None:
+            _chat_cache.move_to_end(stamp)
+            return JSONResponse(hit)
     out = chat.chat(path, limit)
-    if project and records.project(project):
+    if project:
         records.chat_work(project, out["messages"])
         out["shellTracked"] = records.shell_tracked(project)
+    with _chat_lock:
+        _chat_cache[stamp] = out
+        while len(_chat_cache) > CHAT_CACHE_SIZE:
+            _chat_cache.popitem(last=False)
     return JSONResponse(out)
+
+
+CHAT_CACHE_SIZE = 32
+"""기억해 두는 대화 응답 수. 화면분할 4칸 + 프로젝트 탭 + [더 보기] 로 늘린 것까지."""
+
+_chat_cache: OrderedDict[tuple, dict] = OrderedDict()
+"""(기록 파일 · 크기 · 수정 시각 · limit · 프로젝트 · 작업 상자 원본 상태) → 응답.
+보는 화면이 5초마다 묻는데 대화는 그보다 드물게 바뀐다 — 그대로면 기록을 다시 읽지 않는다
+(화면분할 4칸이 동시에 물으면 한 번에 1~2초 걸렸다)."""
+_chat_lock = threading.Lock()
 
 
 @router.get("/claude/compat")
